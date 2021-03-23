@@ -1,1 +1,12 @@
 /target
+
+
+# ignores for Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*

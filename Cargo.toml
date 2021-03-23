@@ -1,5 +1,5 @@
 [package]
-name = "rust-sat"
+name = "simplesat"
 version = "0.1.0"
 authors = ["Hanliang Zhang <comaecliptic1997@gmail.com>"]
 edition = "2018"
