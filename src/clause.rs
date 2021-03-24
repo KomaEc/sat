@@ -1,15 +1,15 @@
 
 
 pub struct Clause {
-    lits : [int], 
+    lits : [i32], 
 }
 
-Impl Clause {
+impl Clause {
     /*
     pub fn new_from_ptr(base: *mut int, clause_buf: &[int]) -> Self {
 	
     }
-    */
+     */
 }
 
 
