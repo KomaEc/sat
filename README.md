@@ -1,4 +1,11 @@
-# CDCL SAT SOLVER
+# A SIMPLE CDCL SAT SOLVER
+
+## Design Principles of simplesat
+Simplesat features several optimization strategies employed by many modern CDCL SAT solvers. For instance, two watched literals scheme, VISD.
+
+Clauses are pre-allocated in a big array. Each clause is represented by its length and a slice.
+
+Firstly, do not consider deleting lemma.
 
 ## Termination Property
 The termination property of the CDCL algorithm is not obvious (at least to me). Since the backjump mechanism does not systematically explore the search space, it is hypothetical that some paths may be repeatedly reached.

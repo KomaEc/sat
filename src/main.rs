@@ -1,7 +1,7 @@
 
 mod clause;
 mod solver;
-mod alloc;
+mod parser;
 
 /*
 use crate::{

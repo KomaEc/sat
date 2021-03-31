@@ -1,21 +1,22 @@
 
-
+/// data in Clause:
+/// -------------------------------------------------------------------------
+/// | length of data | next watch of fst wl | next watch of snd wl | clause |
+/// -------------------------------------------------------------------------
+///
+///
+///
+#[repr(C)]
 pub struct Clause {
-    lits : [i32], 
+    data : [i32], 
 }
 
 impl Clause {
-    /*
-    pub fn new_from_ptr(base: *mut int, clause_buf: &[int]) -> Self {
-	
-    }
-     */
+    
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    
 }
