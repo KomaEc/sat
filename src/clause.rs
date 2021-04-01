@@ -3,7 +3,7 @@
 /// -------------------------------------------------------------------------
 /// | length of data | next watch of fst wl | next watch of snd wl | clause |
 /// -------------------------------------------------------------------------
-///
+/// invariant: the first two literals of a clause must be its watched literals
 ///
 ///
 #[repr(C)]
