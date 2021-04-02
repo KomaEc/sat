@@ -2,6 +2,7 @@
 mod clause;
 mod solver;
 mod parser;
+mod alloc;
 
 /*
 use crate::{
