@@ -21,13 +21,19 @@ pub struct Solver {
     n_clauses : u32, // number of clauses
     n_lemmas : u32, // number of learned clauses
     max_lemmas : u32, // maximum number of learned clauses
-    antecedant : Vec<Option<ClauseRef>>, // the reason clause for an implication
-    decision : Vec<u32>, // decision stack
-    assignment : Vec<Assignment>, // the false stack, should not be vec!
+    
+    antecedant : Box<[ClauseRef]>, // the reason clause for an implication
+    // length = 2 * n_vars + 1
+    decision : Vec<i32>, // decision stack, holds literals
+    // length = n_vars
+    assignment : Box<[Assignment]>, // the false stack, should not be vec!
+    // length = 2 * n_vars + 1
+    first : Box<[ClauseRef]>, // the first clause watched by a literal
+    // length = 2 * n_vars + 1
+    // initially set to 0
+    
 
-    database : Box<[i32]>, // database that holds all lemmas
-    mem_size : usize, // size of data, size == database.len()
-    mem_used : usize, // pointer to first unsued data
+    allocator : Allocator,
 }
 
 /// Data Structures
@@ -126,23 +132,29 @@ pub struct Solver {
 impl Solver {
 
 
-    fn add_clause(&mut self, clause: &[i32]) {
-	// allocate memory
-	let mut used = self.mem_used;
-	self.mem_used += 3 + clause.len();
+    /// Allocate a new clause containing literals in [`lits`], set
+    /// up two watched literals scheme
+    fn add_clause(&mut self, lits: &[i32]) {
+	let clause_ref = self.allocator.allocate_clause(lits);
+	let clause = self.allocator.get_clause(clause_ref);
 
-	// set clause length
-	self.database[used] = clause.len() as i32; used += 1;
-	// well, normally speaking, clause.len() cannot exceed that range...
-	// so it is a safe case here
+	// set up 2 watched literals schemes
+	let fstw_idx = (clause.lits()[0] + self.n_vars as i32) as usize;
+	let sndw_idx = (clause.lits()[1] + self.n_vars as i32) as usize;
+	// compute indices into the first array
+	
+	let next_watches = clause.next_watch();
+	next_watches[0] = self.first[fstw_idx].0 as i32;
+	next_watches[1] = self.first[sndw_idx].0 as i32;
 
-	assert!(clause.len() >= 2);
-	// this is because, we do not add unary clauses to the database.
-	// unary clauses, be it learned or original, are encoded as
-	// ground level assertions.
+	self.first[fstw_idx] = clause_ref;
+	self.first[sndw_idx] = clause_ref;
+    }
 
-	// set up watch literals
-	unimplemented!("have not set up watch literals");
+    fn propagate(&mut self) -> bool {
+
+	unimplemented!("not yet implemented");
+	false
     }
 
     /*
