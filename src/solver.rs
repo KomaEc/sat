@@ -9,6 +9,7 @@ use std::vec::Vec;
 // use crate::clause::*;
 
 #[repr(u8)]
+#[derive(Clone, Copy, PartialEq)]
 enum Assignment {
     Decided,
     Implied,
@@ -17,20 +18,23 @@ enum Assignment {
 
 /// The main solver data structure
 pub struct Solver {
-    n_vars : u32, // number of variables of a SAT instance
-    n_clauses : u32, // number of clauses
-    n_lemmas : u32, // number of learned clauses
-    max_lemmas : u32, // maximum number of learned clauses
+    n_vars : usize, // number of variables of a SAT instance
+    n_clauses : usize, // number of clauses
+    n_lemmas : usize, // number of learned clauses
+    max_lemmas : usize, // maximum number of learned clauses
     
     antecedant : Box<[ClauseRef]>, // the reason clause for an implication
     // length = 2 * n_vars + 1
-    decision : Vec<i32>, // decision stack, holds literals
+    decision : Vec<i32>, // decision stack, holds literals that is assigned to be false
     // length = n_vars
-    assignment : Box<[Assignment]>, // the false stack, should not be vec!
+    assignment : Box<[Assignment]>, // assignment info
     // length = 2 * n_vars + 1
     first : Box<[ClauseRef]>, // the first clause watched by a literal
     // length = 2 * n_vars + 1
     // initially set to 0
+
+    processed : usize,
+    // an index into decision stack. Invariant: processed < decision.length
     
 
     allocator : Allocator,
@@ -143,7 +147,7 @@ impl Solver {
 	let sndw_idx = (clause.lits()[1] + self.n_vars as i32) as usize;
 	// compute indices into the first array
 	
-	let next_watches = clause.next_watch();
+	let next_watches = clause.next_watch_mut();
 	next_watches[0] = self.first[fstw_idx].0 as i32;
 	next_watches[1] = self.first[sndw_idx].0 as i32;
 
@@ -151,7 +155,37 @@ impl Solver {
 	self.first[sndw_idx] = clause_ref;
     }
 
+    /// Perform boolean unit propagation
     fn propagate(&mut self) -> bool {
+
+	loop {
+	    if self.processed == self.decision.len() - 1 { break; }
+	    // else processed < decided
+
+	    self.processed += 1; let mut cur = self.decision[self.processed];
+	    // get current unprocessed decision literal that is assigned
+	    // to be false
+
+	    let cur_idx = (cur + self.n_vars as i32) as usize;
+	    let watch_clause_ref = self.first[cur_idx];
+	    // get reference to watch clause
+
+	    loop {
+		if Allocator::is_null(watch_clause_ref) { break; }
+		let watch_clause = self.allocator.get_clause(watch_clause_ref);
+
+		for lit in watch_clause.lits_mut().iter_mut() {
+		    let lit_idx = (*lit + self.n_vars as i32) as usize;
+		    if self.assignment[lit_idx] == Assignment::Unassigned {
+			let tmp = *lit;
+			*lit = cur;
+
+			unimplemented!("swap");
+		    }
+		    // this clause is undetermined
+		}
+	    }
+	}
 
 	unimplemented!("not yet implemented");
 	false

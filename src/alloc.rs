@@ -14,20 +14,18 @@ pub struct Allocator {
 
 impl Allocator {
 
+    pub fn new() -> Self {
+	let size = 1usize << 30;
+	Allocator {
+	    data : vec![0; size].into_boxed_slice(),
+	    size : size,
+	    used : 1,
+	}
+    }
+
     #[inline]
     pub fn is_null(cref: ClauseRef) -> bool {
 	cref.0 == 0
-    }
-
-    pub fn new() -> Self {
-	let size = 1usize << 30;
-	let used = 1usize; // the first piece of data is always not for use
-	let data = vec![0; size].into_boxed_slice();
-	Allocator {
-	    data : data,
-	    size : 1 << 30,
-	    used : 1,
-	}
     }
 
     #[inline]
@@ -82,6 +80,20 @@ impl ClauseRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_allocate_clause() {
+	let mut allocator = Allocator::new();
+	
+	let clause_data1 = [3, 0, 0, -3, -1, -2]; // uninitialized clause data
+	let clause_data2 = [4, 0, 0, 1, -4, 6, 3];
+	
+	let clause_ref1 = allocator.allocate_clause(&clause_data1[3..]);
+	let clause_ref2 = allocator.allocate_clause(&clause_data2[3..]);
+
+	assert_eq!(*allocator.get_clause(clause_ref1).data(), clause_data1);
+	assert_eq!(*allocator.get_clause(clause_ref2).data(), clause_data2);
+    }
 }
 
 

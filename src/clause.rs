@@ -20,7 +20,7 @@ impl Clause {
     }
 
     #[inline]
-    pub fn next_watch(&mut self) -> &mut [i32] {
+    pub fn next_watch_mut(&mut self) -> &mut [i32] {
 	&mut self.data[1..3]
     }
 
@@ -36,6 +36,10 @@ impl Clause {
 	unsafe {
 	    slice::from_raw_parts_mut(self.data.as_mut_ptr().add(3), self.len())
 	}
+    }
+
+    pub fn data(&mut self) -> &mut [i32] {
+	&mut self.data
     }
 }
 
