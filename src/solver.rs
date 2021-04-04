@@ -162,33 +162,40 @@ impl Solver {
 	    if self.processed == self.decision.len() - 1 { break; }
 	    // else processed < decided
 
-	    self.processed += 1; let mut cur = self.decision[self.processed];
+	    self.processed += 1; let cur = self.decision[self.processed];
 	    // get current unprocessed decision literal that is assigned
 	    // to be false
 
 	    let cur_idx = (cur + self.n_vars as i32) as usize;
-	    let watch_clause_ref = self.first[cur_idx];
+	    let mut watch_clause_ref = self.first[cur_idx];
 	    // get reference to watch clause
 
-	    loop {
+
+	    'loop_clauses: loop {
 		if Allocator::is_null(watch_clause_ref) { break; }
 		let watch_clause = self.allocator.get_clause(watch_clause_ref);
 
 		for lit in watch_clause.lits_mut().iter_mut() {
 		    let lit_idx = (*lit + self.n_vars as i32) as usize;
+		    // TODO: does not compile. Move this part of logic outsides loop
 		    if self.assignment[lit_idx] == Assignment::Unassigned {
+			let ith = (cur == watch_clause.lits()[1]) as usize;
 			let tmp = *lit;
 			*lit = cur;
+			watch_clause.lits_mut()[ith] = tmp;
 
-			unimplemented!("swap");
+			watch_clause_ref = ClauseRef(watch_clause.next_watch()[ith] as usize);
+			break 'loop_clauses;
+
 		    }
 		    // this clause is undetermined
 		}
 	    }
+
 	}
 
-	unimplemented!("not yet implemented");
 	false
+
     }
 
     /*

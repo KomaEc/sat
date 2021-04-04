@@ -20,26 +20,27 @@ impl Clause {
     }
 
     #[inline]
+    pub fn next_watch(&self) -> &[i32] {
+	&self.data[1..3]
+    }
+
+    #[inline]
     pub fn next_watch_mut(&mut self) -> &mut [i32] {
 	&mut self.data[1..3]
     }
 
     #[inline]
     pub fn lits(&self) -> &[i32] {
-	unsafe {
-	    slice::from_raw_parts(self.data.as_ptr().add(3), self.len())
-	}
+	&self.data[3..]
     }
 
     #[inline]
     pub fn lits_mut(&mut self) -> &mut [i32] {
-	unsafe {
-	    slice::from_raw_parts_mut(self.data.as_mut_ptr().add(3), self.len())
-	}
+	&mut self.data[3..]
     }
 
     pub fn data(&mut self) -> &mut [i32] {
-	&mut self.data
+	&mut self.data[..]
     }
 }
 
