@@ -39,6 +39,11 @@ impl Clause {
 	&mut self.data[3..]
     }
 
+    #[inline]
+    pub fn next_watch_and_lits_mut(&mut self) -> (&mut [i32], &mut [i32]) {
+	(&mut self.data[1..]).split_at_mut(2)
+    }
+
     pub fn data(&mut self) -> &mut [i32] {
 	&mut self.data[..]
     }

@@ -37,6 +37,9 @@ pub struct Solver {
     // an index into decision stack. Invariant: processed < decision.length
     
 
+
+    buffer : Box<[i32]>, // a buffer to contain conflict clauses
+    // length = n_vars
     allocator : Allocator,
 }
 
@@ -175,21 +178,42 @@ impl Solver {
 		if Allocator::is_null(watch_clause_ref) { break; }
 		let watch_clause = self.allocator.get_clause(watch_clause_ref);
 
-		for lit in watch_clause.lits_mut().iter_mut() {
+		let (next_watches, lits) = watch_clause.next_watch_and_lits_mut();
+		let (first_two, rest) = lits.split_at_mut(2);
+
+		for lit in rest {
 		    let lit_idx = (*lit + self.n_vars as i32) as usize;
+		    let assign = self.assignment[lit_idx];
 		    // TODO: does not compile. Move this part of logic outsides loop
-		    if self.assignment[lit_idx] == Assignment::Unassigned {
-			let ith = (cur == watch_clause.lits()[1]) as usize;
-			let tmp = *lit;
-			*lit = cur;
-			watch_clause.lits_mut()[ith] = tmp;
+		    if assign == Assignment::Unassigned {
+			// lit is either true or unassigned, in either case,
+			// this clause does not induce further propagation
 
-			watch_clause_ref = ClauseRef(watch_clause.next_watch()[ith] as usize);
+			let ith = (cur == first_two[1]) as usize;
+
+
+			let neg_lit_idx = (-*lit + self.n_vars as i32) as usize;
+			let neg_assign = self.assignment[neg_lit_idx];
+			if neg_assign != Assignment::Unassigned {
+			    // this clause is unresolved, modify two-watched literals
+			    
+			    let tmp = *lit;
+			    *lit = cur;
+			    first_two[ith] = tmp;
+			    // swap literal positions in clause
+
+			    unimplemented!("update first linked list");
+			}
+
+			watch_clause_ref = ClauseRef(next_watches[ith] as usize);
 			break 'loop_clauses;
-
 		    }
-		    // this clause is undetermined
 		}
+		// try to find a literal that is unassigned
+		// if we reach here, then the clause is either unit or conflict ??? not true!
+
+		
+		
 	    }
 
 	}
