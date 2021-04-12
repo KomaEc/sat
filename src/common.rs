@@ -1,5 +1,28 @@
 
 
+use std::vec::Vec;
+use std::result::Result;
+
+pub fn do_stuff_retain<T, F>(v: &mut Vec<T>, mut f: F) -> Result<(), ()>
+where F: FnMut(&mut T) -> Result<bool, ()> {
+    let mut j = v.len(); let mut i = 0;
+    let mut fail_flag = Ok(());
+
+    while i < j {
+	match f(&mut v[i]) {
+	    Ok(true) => { i += 1; },
+	    Ok(false) => { v.swap(i, j-1); },
+	    Err(_) => { fail_flag = Err(()); break; },
+	}
+    }
+
+    v.truncate(j);
+
+    fail_flag
+}
+
+
+
 #[repr(transparent)]
 pub struct Wrapper<T: ?Sized>(T);
 
