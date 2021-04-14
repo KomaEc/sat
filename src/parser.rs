@@ -130,19 +130,9 @@ mod tests {
     }
 
     prop_compose! {
-	fn lit(n_vars: usize)
-	    (sign in any::<bool>(),
-	     var in 1..n_vars+1)
-	     -> i32 {
-		let var = var as i32;
-		if sign { var } else { -var }
-	    }
-    }
-
-    prop_compose! {
 
 	fn clause(n_vars: usize)
-	    (v in vec(-(n_vars as i32)..n_vars as i32, 3usize..n_vars+1))
+	    (v in vec(-(n_vars as i32+1)..n_vars as i32+1, 3usize..n_vars+1))
 	     -> Vec<i32> {
 		v
 	    }
@@ -177,7 +167,7 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_parse((n_vars, n_clauses, clauses) in sat_instance()) {
+	fn test_parse_round_trip((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let str_repr = dimacs_printer(n_vars, n_clauses, &clauses);
 	    if let Ok(parse_result) = dimacs_parser(BufReader::new(str_repr.as_bytes())) {
 		assert_eq!((n_vars, n_clauses, clauses), parse_result);
