@@ -12,11 +12,26 @@ pub struct Allocator {
     used : usize, // pointer to first unused data
 }
 
+impl Default for Allocator {
+    fn default() -> Self {
+	let size = 1usize << 30;
+	Allocator {
+	    data : vec![0; size].into_boxed_slice(),
+	    size : size,
+	    used : 1,
+	}
+    }
+}
+
 
 impl Allocator {
 
     pub fn new() -> Self {
-	let size = 1usize << 30;
+	Allocator::default()
+    }
+
+    pub fn small() -> Self {
+	let size = 1usize << 10;
 	Allocator {
 	    data : vec![0; size].into_boxed_slice(),
 	    size : size,
@@ -62,48 +77,6 @@ impl Allocator {
 	    })
 	}
     }
-
-
-    /*
-    #[inline]
-    pub fn get_watch_clause(&self,
-			    wref: WatchNodeRef) -> ClauseRef {
-	unsafe {
-	    let ptr = self.data.as_ptr().add(wref.0) as * mut usize as * mut ClauseRef;
-	    *ptr
-	}
-    }
-     */
-
-    /*
-    #[inline]
-    pub fn get_watch_node_mut_ptr(&mut self,
-				  wref: WatchNodeRef)
-				  -> (* mut ClauseRef, * mut WatchNodeRef) {
-	unsafe {
-	    let mut ptr: * mut i32 = self.data.as_mut_ptr().add(wref.0);
-	    let cref = ptr as * mut usize as * mut ClauseRef;
-	    ptr = ptr.add(1);
-	    let wref2 = ptr as * mut usize as * mut WatchNodeRef;
-	    (cref, wref2)
-	}
-    }
-     */
-
-    /*
-    #[inline]
-    pub fn get_watch_node_mut(&mut self,
-			      wref: WatchNodeRef)
-			      -> (&mut ClauseRef, &mut WatchNodeRef) {
-	unsafe {
-	    let mut ptr: * mut i32 = self.data.as_mut_ptr().add(wref.0);
-	    let cref = ptr as * mut usize as * mut ClauseRef;
-	    ptr = ptr.add(1);
-	    let wref2 = ptr as * mut usize as * mut WatchNodeRef;
-	    (cref.as_mut().unwrap(), wref2.as_mut().unwrap())
-	}
-    }
-     */
 }
 
 /// Compact representation of clause references

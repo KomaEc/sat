@@ -7,7 +7,6 @@ use crate::{
 };
 
 use std::vec::Vec;
-use std::cell::UnsafeCell;
 
 // use crate::clause::*;
 
@@ -24,11 +23,12 @@ enum Assignment {
     Unassigned,
 }
 
+/// [`Delayed`] clause can be either unit or unresolved
 #[derive(Clone, Copy, PartialEq)]
 enum ClauseStatus {
     Unit(i32),
     Conflict,
-    Delayed,
+    Delayed, /// lazy clause status. If we can be lazy, we can be lazier :)
     Satisfied,
 }
 
@@ -56,6 +56,13 @@ pub struct Solver {
     buffer : Box<[i32]>, // a buffer to contain conflict clauses
     // length = n_vars
     allocator : Allocator,
+}
+
+
+impl Default for Solver {
+    fn default() -> Self {
+	unimplemented!("woops");
+    }
 }
 
 /// Data Structures
@@ -165,12 +172,17 @@ pub struct Solver {
 /// }
 impl Solver {
 
+    fn new() -> Self {
+	Solver::default()
+    }
+
 
     /// Add [`lit`] as a watch literal to the clause
     fn add_watch(&mut self,
 		 clause_ref: ClauseRef,
 		 lit: i32) {
-	self.watches[cal_idx!(lit, self.n_vars)].add_watch(Watch::new(clause_ref));
+	self.watches[cal_idx!(lit, self.n_vars)]
+	    .add_watch(Watch::new(clause_ref));
     }
 
 
@@ -191,7 +203,7 @@ impl Solver {
 
     }
 
-    /// Assign [`lit`] to be false, set reason clause if it
+    /// Assign [`lit`] to be [`false`], set reason clause if it
     /// is implied
     fn assign(&mut self, lit: i32, reason: Option<ClauseRef>) {
 	self.decision.push(lit);
@@ -219,18 +231,24 @@ impl Solver {
     /// For example, under partial assignment [x1 -> true, x2 -> false]
     /// the status of clause ~x1 \/ x2 \/ ~x3 is Unit(x3), it implies that
     /// x3 should be false
+    /// Note that it will never touch [`self.watches[wlit]`]
     fn force_clause_status(&mut self,
 			   wlit: i32,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 	let clause = self.allocator.get_clause(clause_ref);
-	let ith = (wlit == clause.lits()[1]) as usize;
+	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
+
+	// ensure another watch is placed before [`wlit`]
+	if wlit != first_two[1] {
+	    first_two[0] = first_two[1];
+	}
 
 	// at this point, the another watch is unassigned w.r.t.
 	// current decision stack up tp [`wlit`]
 
 	let mut unassigned_idx: Option<usize> = None;
 
-	for (i, lit) in clause.lits().iter().enumerate() {
+	for (i, lit) in rest.iter().enumerate() {
 	    let lit_idx = cal_idx!(*lit, self.n_vars);
 	    if let Assignment::Unassigned = self.assignment[lit_idx] {
 		// [`lit`] is non-false
@@ -240,10 +258,9 @@ impl Solver {
 
 	match unassigned_idx {
 	    Some(i) => {
-		// assert_eq!(wlit, clause.lits()[ith]);
-		let lit = clause.lits_mut()[i];
-		clause.lits_mut()[ith] = lit;
-		clause.lits_mut()[i] = wlit;
+		let lit = rest[i];
+		first_two[1] = lit;
+		rest[i] = wlit;
 		// swap literals
 		
 		self.add_watch(clause_ref, lit);
@@ -252,8 +269,12 @@ impl Solver {
 		ClauseStatus::Delayed
 	    },
 	    None => {
+
+		first_two[1] = wlit;
+		// place watch here
+		
 		// the clause is either unit or conflict
-		let wlit2 = clause.lits()[1-ith];
+		let wlit2 = first_two[0];
 		let wlit2_idx = cal_idx!(wlit2, self.n_vars);
 		let neg_wlit2_idx = cal_idx!(-wlit2, self.n_vars);
 
@@ -266,7 +287,7 @@ impl Solver {
 			ClauseStatus::Conflict
 		    }
 		} else {
-		    // else wlit2 is satisfied, do nothing
+		    // else wlit2 is satisfied
 		    ClauseStatus::Satisfied
 		}
 	    },
@@ -306,8 +327,7 @@ impl Solver {
 		    },
 		    ClauseStatus::Conflict => {
 			self.buffer[..]
-			    .clone_from_slice(self
-					      .allocator
+			    .clone_from_slice(self.allocator
 					      .get_clause(clause_ref)
 					      .lits());
 			// copy conflict clause into buffer
@@ -339,29 +359,17 @@ impl Solver {
 	true // propagation done, no conflict found
     }
 
-
-    /*
-    /// create a new solver instance, initilize everything
-    fn new(n_vars: i32, n_clauses: i32) -> Self {
-	Solver {
-	    n_vars : n_vars,
-	    n_clauses : n_clauses,
-	    mem_max : 1i32 << 30,
-	    mem_used : 0,
-	    n_lemmas : 0,
-	    max_lemmas : 2000,
-	    database : {
-		let vec = vec![0; (1i32 << 30) as usize];
-		vec.into_boxed_slice()
-	    },
-	}
-    }
-     */
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn test_force_clause_status() {
+	
+    }
 
 }

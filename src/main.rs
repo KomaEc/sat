@@ -5,6 +5,8 @@ mod parser;
 mod watch;
 mod common;
 
+#[macro_use] extern crate io_error;
+
 /*
 use crate::{
     clause::{Clause},
