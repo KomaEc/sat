@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6443002eb2c9c7eb6e96c501ddb759022f43808489ee1dc8ff27c9d07cd8eca8 # shrinks to (n_vars, n_clauses, clauses) = (3, 5, [[-1, -2], [-1, -2], [-1, -2], [-2, -1], [-2, -1]])
+cc a8baaed05cd11ef86e20982c658f73e7853f4dba21d0b48390a63d83f994e99a # shrinks to (n_vars, n_clauses, mut clauses) = (4, 10, [[-4, -2], [3, -4, 2, 1], [1, 2], [-4, 3], [-2, 3, -4, -1], [1, -4], [-4, -2, 1, -3], [1, 2, 4, -3], [-3, -1], [3, 4, -2, 1]])
+cc dcc658521a65b309e2f3361546f09a6b8ac0c93a083bfd58b5126856487cefa8 # shrinks to (n_vars, n_clauses, mut clauses) = (4, 9, [[2, -1], [3, -1, 4], [-2, -1, -4], [2, -4, 3, 1], [-1, 4, -3, 2], [4, -1], [-4, -1, 3, -2], [1, 4], [2, -1, 3]])

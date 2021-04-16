@@ -7,6 +7,7 @@ use crate::{
 };
 
 use std::vec::Vec;
+use std::fmt;
 
 // use crate::clause::*;
 
@@ -24,7 +25,7 @@ enum Assignment {
 }
 
 /// [`Delayed`] clause can be either unit or unresolved
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum ClauseStatus {
     Unit(i32),
     Conflict,
@@ -49,7 +50,8 @@ pub struct Solver {
     // length = 2 * n_vars + 1
 
     processed : usize,
-    // an index into decision stack. Invariant: processed < decision.len()
+    // an index into decision stack. Invariant: processed <= decision.len()
+    // it points to the first unprocessed decision
     
 
 
@@ -61,7 +63,28 @@ pub struct Solver {
 
 impl Default for Solver {
     fn default() -> Self {
-	unimplemented!("woops");
+	Solver {
+	    n_vars : 0,
+	    n_clauses : 0,
+	    n_lemmas : 0,
+	    max_lemmas : 2000,
+	    reason : vec![].into_boxed_slice(),
+	    decision : vec![],
+	    assignment : vec![].into_boxed_slice(),
+	    watches : vec![].into_boxed_slice(),
+	    processed : 0,
+	    buffer : vec![].into_boxed_slice(),
+	    allocator : Allocator::small(),
+	}
+    }
+}
+
+
+impl fmt::Debug for Solver {
+
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+	
+	unimplemented!("woops")
     }
 }
 
@@ -172,10 +195,76 @@ impl Default for Solver {
 /// }
 impl Solver {
 
-    fn new() -> Self {
-	Solver::default()
+
+    fn print_all_clauses(&self) {
+	let mut occurs = std::collections::HashMap::new();
+	for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+	    if lit == 0 { continue; }
+	    for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		if !occurs.contains_key(watch) {
+		    let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
+		    occurs.insert(watch, clause);
+		    // let clause = self.allocator.get_clause(watch.clause_ref());
+		    // println!("{:?}: {:?}", watch.clause_ref(), clause.lits());
+		}
+	    }
+	}
+
+	let mut res = occurs
+	    .iter()
+	    .collect::<Vec<(_, _)>>();
+	res.sort_by(|(w1, _), (w2, _)| {
+	    w1.cmp(w2)
+	});
+
+	for (w, cls) in res {
+	    println!("{:?}: {:?}", w.clause_ref(), cls);
+	}
     }
 
+
+    fn print_watch(&self) {
+	for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+	    if lit == 0 { continue; }
+	    println!("literal {} is watching:", lit);
+	    println!("{}", (&self.watches[cal_idx!(lit, self.n_vars)])
+		     .into_iter()
+		     .map(|x| format!("{:?}", x.clause_ref()))
+		     .collect::<Vec<String>>()
+		     .join(" "));
+	}
+    }
+
+
+    fn from_sat_instance(n_vars: usize,
+			 n_clauses: usize,
+			 clauses: Vec<Vec<i32>>,
+			 small: bool) -> Self {
+	let mut solver =
+	    Solver {
+		n_vars : n_vars,
+		n_clauses : n_clauses,
+		n_lemmas : 0,
+		max_lemmas : 2000,
+		reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
+		decision : Vec::with_capacity(n_vars),
+		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
+		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
+		processed : 0,
+		buffer : vec![0i32; n_vars].into_boxed_slice(),
+		allocator : if small {
+		    Allocator::small()
+		} else {
+		    Allocator::new()
+		},
+	    };
+
+	for lits in clauses {
+	    solver.add_clause(&lits);
+	}
+
+	solver
+    }
 
     /// Add [`lit`] as a watch literal to the clause
     fn add_watch(&mut self,
@@ -210,6 +299,11 @@ impl Solver {
 	let lit_idx = cal_idx!(lit, self.n_vars);
 	match reason {
 	    Some(cref) => {
+
+		// FIXME: remove
+		println!("literal {} is implied", lit);
+
+		
 		self.assignment[lit_idx] = Assignment::Implied;
 		self.reason[lit_idx] = cref;
 		// FIXME: lit or neg_lit??
@@ -235,13 +329,19 @@ impl Solver {
     fn force_clause_status(&mut self,
 			   wlit: i32,
 			   clause_ref: ClauseRef) -> ClauseStatus {
-	let clause = self.allocator.get_clause(clause_ref);
+
+
+	assert!(self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Decided || self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Implied);
+	
+	let clause = self.allocator.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
 
 	// ensure another watch is placed before [`wlit`]
 	if wlit != first_two[1] {
 	    first_two[0] = first_two[1];
 	}
+
+	// now, first_two[1] is meaningless
 
 	// at this point, the another watch is unassigned w.r.t.
 	// current decision stack up tp [`wlit`]
@@ -301,10 +401,10 @@ impl Solver {
     fn propagate(&mut self) -> bool {
 	
 	'loop_unprocessed: loop {
-	    if self.processed == self.decision.len() - 1 { break; }
-	    // else processed < decided
+	    if self.processed == self.decision.len() { break; }
+	    // else processed <= decided
 
-	    self.processed += 1; let cur_lit = self.decision[self.processed];
+	    let cur_lit = self.decision[self.processed]; self.processed += 1; 
 	    // get current unprocessed decision literal that is assigned
 	    // to be false
 	    let cur_lit_idx = cal_idx!(cur_lit, self.n_vars);
@@ -319,6 +419,9 @@ impl Solver {
 
 		let clause_ref = watch_list[i].clause_ref();
 
+		// FIXME: remove
+		println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
+
 		// FIXME: check [`i`], [`j`] invariant!
 		match self.force_clause_status(cur_lit, clause_ref) {
 		    ClauseStatus::Unit(implied_lit) => {
@@ -326,10 +429,11 @@ impl Solver {
 			i += 1;
 		    },
 		    ClauseStatus::Conflict => {
-			self.buffer[..]
-			    .clone_from_slice(self.allocator
-					      .get_clause(clause_ref)
-					      .lits());
+			let lits = self.allocator
+			    .get_clause(clause_ref)
+			    .lits();
+			self.buffer[..lits.len()]
+			    .clone_from_slice(lits);
 			// copy conflict clause into buffer
 			conflict = true;
 			break;
@@ -366,10 +470,141 @@ impl Solver {
 mod tests {
     use super::*;
 
+    use proptest::prelude::*;
+    use proptest::collection::{hash_set, vec};
 
-    #[test]
-    fn test_force_clause_status() {
-	
+
+    prop_compose! {
+	fn clause(n_vars: usize)
+	    (length in 2usize..n_vars+1)
+	    (signs in vec(any::<bool>(), length),
+	     vars in hash_set(1..n_vars as i32 +1, length))
+	     -> Vec<i32> {
+		let mut vars: Vec<_> = vars.into_iter().collect();
+		for (i, var) in vars.iter_mut().enumerate() {
+		    if !signs[i] { *var = -*var; }
+		}
+		vars
+	    }
     }
 
+
+    /// generate small SAT instances with number of varibales ranges
+    /// from 3 to 5, number of clauses ranges from 5 to 12
+    fn sat_instance() -> impl Strategy<Value = (usize, usize, Vec<Vec<i32>>)> {
+	(3usize..6,
+	 5usize..13)
+	    .prop_flat_map(|(n_vars, n_clauses)| {
+		vec(clause(n_vars), n_clauses)
+		    .prop_map(move |clauses| (n_vars, n_clauses, clauses))
+	    })
+    }
+
+
+    /*
+    proptest! {
+    #![proptest_config(ProptestConfig{
+	    max_shrink_iters : 0,
+	    ..ProptestConfig::default()
+	})]
+	#[test]
+	fn test_gen((n_vars, n_clauses, clauses) in sat_instance()) {
+	    println!("n_vars: {}", n_vars);
+	    println!("n_clauses: {}", n_clauses);
+	    for lits in clauses {
+		println!("{}",
+			 lits
+			 .into_iter()
+			 .map(|lit| format!("{}", lit))
+			 .collect::<Vec<String>>()
+			 .join(" "));
+	    }
+
+	    assert!(false);
+	}
+    }
+     */
+
+
+    fn all_different<T>(v: &Vec<T>) -> bool
+    where T: PartialEq {
+	for i in 0..v.len()-1 {
+	    for j in i+1..v.len() {
+		if v[i] == v[j] { return false; }
+	    }
+	}
+	return true;
+    }
+
+    proptest! {
+	#![proptest_config(ProptestConfig{
+	    max_shrink_iters : 0,
+	    ..ProptestConfig::default()
+	})]
+	#[test]
+	fn test_solver_initialize((n_vars, n_clauses, mut clauses) in sat_instance()) {
+	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+
+	    // watch clause should comes from the original sat instance
+	    for lit in -(n_vars as i32)..(n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		for watch in &solver.watches[cal_idx!(lit, n_vars)] {
+		    let clause = solver.allocator.get_clause(watch.clause_ref());
+		    assert!(lit == clause.lits()[0] || lit == clause.lits()[1]);
+		    assert!(clauses.contains(&clause.lits().to_vec()));
+		}
+	    }
+
+
+	    // simulate a decision
+	    solver.assign(1, None);
+	    solver.propagate();
+
+	    let mut num = 0;
+
+	    for lit in -(n_vars as i32)..(n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		num += solver.watches[cal_idx!(lit, n_vars)].len();
+	    }
+
+
+	    assert_eq!(clauses.len() * 2, num);
+	    
+	}
+    }
+
+
+    #[test]
+    fn test_propagate1() {
+	let mut solver
+	    = Solver::from_sat_instance(
+		3, 9,
+		vec![vec![-3, -1, 2],
+		     vec![3, 2],
+		     vec![-1, -3],
+		     vec![-2, 1],
+		     vec![-2, -1],
+		     vec![-2, 1, 3],
+		     vec![1, -3],
+		     vec![-2, -1, -3],
+		     vec![1, 2, 3]], true);
+
+	solver.print_all_clauses();
+	solver.print_watch();
+
+	// simlute a decision
+	println!("assign literal 1 to be false");
+	solver.assign(1, None);
+	let propagation_result = solver.propagate();
+
+
+	println!("propagation result: {}", propagation_result);
+
+	solver.print_watch();
+
+
+	assert!(false);
+
+	
+    }
 }

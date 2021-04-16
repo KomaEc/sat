@@ -8,10 +8,11 @@ use std::iter::{Iterator, IntoIterator};
 use std::ops::{Index, IndexMut};
 
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Watch(ClauseRef);
 
 #[repr(transparent)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct WatchList(Vec<Watch>);
 
 
@@ -94,3 +95,20 @@ impl<'a> IntoIterator for &'a WatchList {
 
 }
 
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn create_watch(i: usize) -> Watch {
+	unsafe { std::mem::transmute(i) }
+    }
+
+    #[test]
+    fn test_watch_eq() {
+	assert_eq!(WatchList(vec![create_watch(1), create_watch(2), create_watch(3)]), WatchList(vec![create_watch(1), create_watch(2), create_watch(3)]));
+	assert_ne!(WatchList(vec![create_watch(1), create_watch(2), create_watch(3)]), WatchList(vec![create_watch(3), create_watch(2), create_watch(1)]))
+    }
+    
+}

@@ -68,7 +68,18 @@ impl Allocator {
     }
 
     #[inline]
-    pub fn get_clause(&mut self, cref: ClauseRef) -> &mut Clause {
+    pub fn get_clause(&self, cref: ClauseRef) -> &Clause {
+	unsafe {
+	    std::mem::transmute({
+		let ptr = self.data.as_ptr().add(cref.0);
+		let len = *ptr as usize;
+		std::slice::from_raw_parts(ptr, len + 1)
+	    })
+	}
+    }
+
+    #[inline]
+    pub fn get_clause_mut(&mut self, cref: ClauseRef) -> &mut Clause {
 	unsafe {
 	    std::mem::transmute({
 		let ptr = self.data.as_mut_ptr().add(cref.0);
@@ -81,16 +92,19 @@ impl Allocator {
 
 /// Compact representation of clause references
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ClauseRef(usize);
 
-/*
 impl ClauseRef {
+
+    pub fn null() -> Self {
+	ClauseRef(0)
+    }
+    
     pub fn is_null(&self) -> bool {
 	self.0 == 0
     }
 }
- */
 
 /*
 #[repr(transparent)]
