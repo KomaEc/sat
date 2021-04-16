@@ -46,14 +46,17 @@ impl WatchList {
 	WatchList(Vec::new())
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
 	self.0.len()
     }
 
+    #[inline]
     pub fn swap(&mut self, i: usize, j: usize) {
 	self.0.swap(i, j);
     }
 
+    #[inline]
     pub fn truncate(&mut self, s: usize) {
 	self.0.truncate(s);
     }

@@ -5,16 +5,18 @@ use crate::{
     clause::alloc::{Allocator, ClauseRef},
     watch::{Watch, WatchList}
 };
-
 use std::vec::Vec;
-use std::fmt;
 
-// use crate::clause::*;
 
-/// Calculate the index of a literal into arrays like [`first`]
+/// Calculate the index of a literal into arrays like [`assignment`]
 macro_rules! cal_idx {
     ($lit: expr, $n_vars: expr) => { ($lit + ($n_vars as i32)) as usize }
 }
+
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+struct Level(u32);
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
@@ -24,7 +26,7 @@ enum Assignment {
     Unassigned,
 }
 
-/// [`Delayed`] clause can be either unit or unresolved
+/// [`Delayed`] clause can be either unit or unresolved or satisfed
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum ClauseStatus {
     Unit(i32),
@@ -56,7 +58,8 @@ pub struct Solver {
 
 
     buffer : Box<[i32]>, // a buffer to contain conflict clauses
-    // length = n_vars
+    // the first [`i32`] is used to store the length of the data
+    // length of total buffer = n_vars + 1
     allocator : Allocator,
 }
 
@@ -79,14 +82,6 @@ impl Default for Solver {
     }
 }
 
-
-impl fmt::Debug for Solver {
-
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-	
-	unimplemented!("woops")
-    }
-}
 
 /// Data Structures
 /// 1. decision stack. A stack holding literals in the current
@@ -141,7 +136,7 @@ impl fmt::Debug for Solver {
 /// introduce other literals with possibly higher decision level.
 
 
-/// It might be a bit hard to depict why CDCL can find UNSAT.
+/// It might be a bit hard to understand why CDCL can find UNSAT.
 /// Here is my thought, imagine that after a long and winding
 /// search, there are a lot of ground level implications that is
 /// produced by backtracking.
@@ -188,54 +183,18 @@ impl fmt::Debug for Solver {
 /// }
 /// ```
 ///
-/// - [x] analyze()
+/// - [ ] analyze()
 /// // current conflict clause is already stored in the buffer
 /// fn analyze() {
+///   while !stop_criterion_met {
+///     let lit = last assigned literal in current conflict;
+///     let reason_cls = reason[lit];
+///     conflict_cls = resolve(lit, conflict_cls, reason_cls);
+///   }
 ///   
 /// }
 impl Solver {
-
-
-    fn print_all_clauses(&self) {
-	let mut occurs = std::collections::HashMap::new();
-	for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
-	    if lit == 0 { continue; }
-	    for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
-		if !occurs.contains_key(watch) {
-		    let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
-		    occurs.insert(watch, clause);
-		    // let clause = self.allocator.get_clause(watch.clause_ref());
-		    // println!("{:?}: {:?}", watch.clause_ref(), clause.lits());
-		}
-	    }
-	}
-
-	let mut res = occurs
-	    .iter()
-	    .collect::<Vec<(_, _)>>();
-	res.sort_by(|(w1, _), (w2, _)| {
-	    w1.cmp(w2)
-	});
-
-	for (w, cls) in res {
-	    println!("{:?}: {:?}", w.clause_ref(), cls);
-	}
-    }
-
-
-    fn print_watch(&self) {
-	for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
-	    if lit == 0 { continue; }
-	    println!("literal {} is watching:", lit);
-	    println!("{}", (&self.watches[cal_idx!(lit, self.n_vars)])
-		     .into_iter()
-		     .map(|x| format!("{:?}", x.clause_ref()))
-		     .collect::<Vec<String>>()
-		     .join(" "));
-	}
-    }
-
-
+	
     fn from_sat_instance(n_vars: usize,
 			 n_clauses: usize,
 			 clauses: Vec<Vec<i32>>,
@@ -251,7 +210,7 @@ impl Solver {
 		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
 		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
 		processed : 0,
-		buffer : vec![0i32; n_vars].into_boxed_slice(),
+		buffer : vec![0i32; n_vars+1].into_boxed_slice(),
 		allocator : if small {
 		    Allocator::small()
 		} else {
@@ -301,7 +260,7 @@ impl Solver {
 	    Some(cref) => {
 
 		// FIXME: remove
-		println!("literal {} is implied", lit);
+		// println!("literal {} is implied", lit);
 
 		
 		self.assignment[lit_idx] = Assignment::Implied;
@@ -313,6 +272,25 @@ impl Solver {
 	    }
 	}
 	
+    }
+
+    /// undo the latest assignment
+    fn undo_assign(&mut self) {
+	
+    }
+
+    /// naive decision
+    fn naive_decide(&mut self) -> bool {
+	
+	for var in 1..(self.n_vars as i32 + 1) {
+	    if self.assignment[cal_idx!(var, self.n_vars)] == Assignment::Unassigned
+		&& self.assignment[cal_idx!(-var, self.n_vars)] == Assignment::Unassigned {
+		self.assign(var, None);
+		return true;
+	    }
+	}
+
+	return false;
     }
 
 
@@ -380,7 +358,7 @@ impl Solver {
 
 		if let Assignment::Unassigned = self.assignment[neg_wlit2_idx] {
 		    if let Assignment::Unassigned = self.assignment[wlit2_idx] {
-			// unit clause found, implies [`-wlit2`] is false
+			// unit clause found, implying [`-wlit2`] to be false
 			ClauseStatus::Unit(-wlit2)
 		    } else {
 			// conflict found
@@ -420,9 +398,8 @@ impl Solver {
 		let clause_ref = watch_list[i].clause_ref();
 
 		// FIXME: remove
-		println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
+		// println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
 
-		// FIXME: check [`i`], [`j`] invariant!
 		match self.force_clause_status(cur_lit, clause_ref) {
 		    ClauseStatus::Unit(implied_lit) => {
 			self.assign(implied_lit, Some(clause_ref));
@@ -432,7 +409,8 @@ impl Solver {
 			let lits = self.allocator
 			    .get_clause(clause_ref)
 			    .lits();
-			self.buffer[..lits.len()]
+			self.buffer[0] = lits.len() as i32;
+			self.buffer[1..lits.len()+1]
 			    .clone_from_slice(lits);
 			// copy conflict clause into buffer
 			conflict = true;
@@ -463,6 +441,29 @@ impl Solver {
 	true // propagation done, no conflict found
     }
 
+
+    fn analyze_conflict(&mut self) -> bool {
+
+	self.processed -= 1;
+	// set [`processed`] to point to the last processed element
+
+	
+	true
+
+    }
+
+
+    pub fn solve(&mut self) -> bool {
+
+	loop {
+	    if !self.propagate() {
+		if !self.analyze_conflict() { return false; }
+	    } else if !self.naive_decide() {
+		return true;
+	    }
+	}
+    }
+
 }
 
 
@@ -472,6 +473,50 @@ mod tests {
 
     use proptest::prelude::*;
     use proptest::collection::{hash_set, vec};
+
+
+
+    impl Solver {
+	fn print_all_clauses(&self) {
+	    let mut occurs = std::collections::HashMap::new();
+	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		    if !occurs.contains_key(watch) {
+			let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
+			occurs.insert(watch, clause);
+			// let clause = self.allocator.get_clause(watch.clause_ref());
+			// println!("{:?}: {:?}", watch.clause_ref(), clause.lits());
+		    }
+		}
+	    }
+
+	    let mut res = occurs
+		.iter()
+		.collect::<Vec<(_, _)>>();
+	    res.sort_by(|(w1, _), (w2, _)| {
+		w1.cmp(w2)
+	    });
+
+	    for (w, cls) in res {
+		println!("{:?}: {:?}", w.clause_ref(), cls);
+	    }
+	}
+
+
+	fn print_watch(&self) {
+	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		println!("literal {} is watching:", lit);
+		println!("{}", (&self.watches[cal_idx!(lit, self.n_vars)])
+			 .into_iter()
+			 .map(|x| format!("{:?}", x.clause_ref()))
+			 .collect::<Vec<String>>()
+			 .join(" "));
+	    }
+	}
+    }
+
 
 
     prop_compose! {
@@ -490,10 +535,10 @@ mod tests {
 
 
     /// generate small SAT instances with number of varibales ranges
-    /// from 3 to 5, number of clauses ranges from 5 to 12
+    /// from 3 to 6, number of clauses ranges from 5 to 14
     fn sat_instance() -> impl Strategy<Value = (usize, usize, Vec<Vec<i32>>)> {
-	(3usize..6,
-	 5usize..13)
+	(3usize..7,
+	 5usize..15)
 	    .prop_flat_map(|(n_vars, n_clauses)| {
 		vec(clause(n_vars), n_clauses)
 		    .prop_map(move |clauses| (n_vars, n_clauses, clauses))
@@ -526,6 +571,7 @@ mod tests {
      */
 
 
+    /*
     fn all_different<T>(v: &Vec<T>) -> bool
     where T: PartialEq {
 	for i in 0..v.len()-1 {
@@ -535,6 +581,7 @@ mod tests {
 	}
 	return true;
     }
+     */
 
     proptest! {
 	#![proptest_config(ProptestConfig{
@@ -573,9 +620,8 @@ mod tests {
 	}
     }
 
-
     #[test]
-    fn test_propagate1() {
+    fn test_propagate() {
 	let mut solver
 	    = Solver::from_sat_instance(
 		3, 9,
@@ -597,13 +643,12 @@ mod tests {
 	solver.assign(1, None);
 	let propagation_result = solver.propagate();
 
+	assert!(!propagation_result); // conflict should be found
+	assert_eq!(solver.buffer[1..(solver.buffer[0] as usize + 1)], [3, 2]);
 
 	println!("propagation result: {}", propagation_result);
 
 	solver.print_watch();
-
-
-	assert!(false);
 
 	
     }
