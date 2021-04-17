@@ -16,7 +16,7 @@ macro_rules! cal_idx {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-struct Level(u32);
+struct Level(u16);
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
@@ -44,7 +44,7 @@ pub struct Solver {
     
     reason : Box<[ClauseRef]>, // the reason clause for an implication
     // length = 2 * n_vars + 1
-    decision : Vec<i32>, // decision stack, holds literals that is assigned to be false
+    false_stack : Vec<i32>, // false_stack stack, holds literals that is assigned to be false
     // length = n_vars
     assignment : Box<[Assignment]>, // assignment info
     // length = 2 * n_vars + 1
@@ -52,8 +52,8 @@ pub struct Solver {
     // length = 2 * n_vars + 1
 
     processed : usize,
-    // an index into decision stack. Invariant: processed <= decision.len()
-    // it points to the first unprocessed decision
+    // an index into false_stack stack. Invariant: processed <= false_stack.len()
+    // it points to the first unprocessed false_stack
     
 
 
@@ -72,7 +72,7 @@ impl Default for Solver {
 	    n_lemmas : 0,
 	    max_lemmas : 2000,
 	    reason : vec![].into_boxed_slice(),
-	    decision : vec![],
+	    false_stack : vec![],
 	    assignment : vec![].into_boxed_slice(),
 	    watches : vec![].into_boxed_slice(),
 	    processed : 0,
@@ -84,9 +84,9 @@ impl Default for Solver {
 
 
 /// Data Structures
-/// 1. decision stack. A stack holding literals in the current
+/// 1. false_stack stack. A stack holding literals in the current
 ///    assignment.
-///   1.1 two indices [`assigned`], [`processed`] of the decision
+///   1.1 two indices [`assigned`], [`processed`] of the false_stack
 ///       stack.
 ///   1.2 a false stack is maintained to hold status (Decided, etc.)
 /// 2. watched literals. For each literal, we store a 'linked list'
@@ -100,11 +100,11 @@ impl Default for Solver {
 ///    checking clause status. The answer is one watch may loss
 ///    arc consistency. Consider the following scenario: a clause is
 ///    watched by a literal, which is unassigned at this point, and
-///    after current decision and implications, all other literals
+///    after current false_stack and implications, all other literals
 ///    are assigned to be false. Since the watch literal is left
 ///    untouched in this round, the solver will never check this clause.
 ///    Therefore, arc consistency is lost.
-/// 3. Decision level. There will be no explicit decision levels.
+/// 3. False_Stack level. There will be no explicit false_stack levels.
 ///    The assignment is organized as a stack like structure, with
 ///    the following form:
 ///    |     ...     |
@@ -123,17 +123,17 @@ impl Default for Solver {
 /// a learnt clause is constructed by multip steps of resolusion
 /// of this clause with other clauses.
 
-/// Backtrack level: the second highest decision level in the
+/// Backtrack level: the second highest false_stack level in the
 /// learnt clause.
 
 /// Stop criteria: resolusion stops when current clause contains
 /// the negation of the first Unique Implication Point (UIP) as
-/// the [only] literal that is at current decision level.
-/// This criteria provides the [lowest] decision level. The reason
+/// the [only] literal that is at current false_stack level.
+/// This criteria provides the [lowest] false_stack level. The reason
 /// is pretty simple: resolusion only eliminates literals at
 /// current assignment, so further resolusion will not affects
 /// other literals other than the first UIP, and will only
-/// introduce other literals with possibly higher decision level.
+/// introduce other literals with possibly higher false_stack level.
 
 
 /// It might be a bit hard to understand why CDCL can find UNSAT.
@@ -164,13 +164,13 @@ impl Default for Solver {
 ///       break;
 ///     }
 ///     // else processed < assigned
-///     let cur_lit = decision[++processed];
+///     let cur_lit = false_stack[++processed];
 ///     let clause;
 ///
 ///     for clause in watch[cur_lit] {
 ///       if is_unit(clause) {
 ///         let implied_lit = lit_implied_by(clause)
-///         decision[++assigned] = implied_lit;
+///         false_stack[++assigned] = implied_lit;
 ///         antecedant[lit] = clause;
 ///       } else if conflict(clause) {
 ///         store current clause in buffer;
@@ -206,7 +206,7 @@ impl Solver {
 		n_lemmas : 0,
 		max_lemmas : 2000,
 		reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
-		decision : Vec::with_capacity(n_vars),
+		false_stack : Vec::with_capacity(n_vars),
 		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
 		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
 		processed : 0,
@@ -251,10 +251,9 @@ impl Solver {
 
     }
 
-    /// Assign [`lit`] to be [`false`], set reason clause if it
-    /// is implied
+    /// Assign [`lit`] to be [`false`], set reason clause
     fn assign(&mut self, lit: i32, reason: Option<ClauseRef>) {
-	self.decision.push(lit);
+	self.false_stack.push(lit);
 	let lit_idx = cal_idx!(lit, self.n_vars);
 	match reason {
 	    Some(cref) => {
@@ -274,12 +273,7 @@ impl Solver {
 	
     }
 
-    /// undo the latest assignment
-    fn undo_assign(&mut self) {
-	
-    }
-
-    /// naive decision
+    /// naive false_stack
     fn naive_decide(&mut self) -> bool {
 	
 	for var in 1..(self.n_vars as i32 + 1) {
@@ -297,7 +291,7 @@ impl Solver {
     /// Force the variant of two watch literals scheme.
     /// Precondition: [`watch_lit`] is a watch literal of
     /// clause [`clause_ref`], and it is assigned to be false
-    /// in current decision level
+    /// in current false_stack level
     /// return [`Unit(lit)`] if the clause is a unit clause, and
     /// [`lit`] is negation of the only unassigned literal in this clause.
     /// For example, under partial assignment [x1 -> true, x2 -> false]
@@ -308,8 +302,8 @@ impl Solver {
 			   wlit: i32,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
-
-	assert!(self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Decided || self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Implied);
+	// FIXME: remove
+	// assert!(self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Decided || self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Implied);
 	
 	let clause = self.allocator.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
@@ -322,7 +316,7 @@ impl Solver {
 	// now, first_two[1] is meaningless
 
 	// at this point, the another watch is unassigned w.r.t.
-	// current decision stack up tp [`wlit`]
+	// current false_stack stack up tp [`wlit`]
 
 	let mut unassigned_idx: Option<usize> = None;
 
@@ -379,11 +373,11 @@ impl Solver {
     fn propagate(&mut self) -> bool {
 	
 	'loop_unprocessed: loop {
-	    if self.processed == self.decision.len() { break; }
+	    if self.processed == self.false_stack.len() { break; }
 	    // else processed <= decided
 
-	    let cur_lit = self.decision[self.processed]; self.processed += 1; 
-	    // get current unprocessed decision literal that is assigned
+	    let cur_lit = self.false_stack[self.processed]; self.processed += 1; 
+	    // get current unprocessed false_stack literal that is assigned
 	    // to be false
 	    let cur_lit_idx = cal_idx!(cur_lit, self.n_vars);
 
@@ -571,18 +565,6 @@ mod tests {
      */
 
 
-    /*
-    fn all_different<T>(v: &Vec<T>) -> bool
-    where T: PartialEq {
-	for i in 0..v.len()-1 {
-	    for j in i+1..v.len() {
-		if v[i] == v[j] { return false; }
-	    }
-	}
-	return true;
-    }
-     */
-
     proptest! {
 	#![proptest_config(ProptestConfig{
 	    max_shrink_iters : 0,
@@ -603,7 +585,7 @@ mod tests {
 	    }
 
 
-	    // simulate a decision
+	    // simulate a false_stack
 	    solver.assign(1, None);
 	    solver.propagate();
 
