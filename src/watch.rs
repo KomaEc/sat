@@ -61,6 +61,11 @@ impl WatchList {
 	self.0.truncate(s);
     }
 
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+	self.0.is_empty()
+    }
+
 }
 
 impl Index<usize> for WatchList {

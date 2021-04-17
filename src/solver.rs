@@ -6,6 +6,7 @@ use crate::{
     watch::{Watch, WatchList}
 };
 use std::vec::Vec;
+use std::ops::Add;
 
 
 /// Calculate the index of a literal into arrays like [`assignment`]
@@ -13,16 +14,28 @@ macro_rules! cal_idx {
     ($lit: expr, $n_vars: expr) => { ($lit + ($n_vars as i32)) as usize }
 }
 
-
+/*
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 struct Level(u16);
 
-#[repr(u8)]
-#[derive(Clone, Copy, PartialEq)]
+impl Level {
+    fn ground_level() -> Self {
+	Level(0)
+    }
+
+    fn incr(&mut self) {
+	self.0 += 1;
+    }
+}
+ */
+
+
+// #[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Assignment {
     Decided,
-    Implied,
+    Implied(ClauseRef),
     Unassigned,
 }
 
@@ -37,75 +50,53 @@ enum ClauseStatus {
 
 /// The main solver data structure
 pub struct Solver {
-    n_vars : usize, // number of variables of a SAT instance
-    n_clauses : usize, // number of clauses
-    n_lemmas : usize, // number of learned clauses
-    max_lemmas : usize, // maximum number of learned clauses
+    n_vars : usize, /// number of variables of a SAT instance
+    n_clauses : usize, /// number of clauses
+    n_lemmas : usize, /// number of learned clauses
+    max_lemmas : usize, /// maximum number of learned clauses
     
-    reason : Box<[ClauseRef]>, // the reason clause for an implication
-    // length = 2 * n_vars + 1
-    false_stack : Vec<i32>, // false_stack stack, holds literals that is assigned to be false
-    // length = n_vars
-    assignment : Box<[Assignment]>, // assignment info
-    // length = 2 * n_vars + 1
-    watches : Box<[WatchList]>, // clauses watched by a literal
+    // reason : Box<[ClauseRef]>, // the reason clause for an implication
     // length = 2 * n_vars + 1
 
+    
+    false_stack : Vec<i32>, /// false_stack stack, holds literals that is assigned to be false
+    /// length = n_vars
+    assignment : Box<[Assignment]>, /// assignment info
+    /// length = 2 * n_vars + 1
+    watches : Box<[WatchList]>, /// clauses watched by a literal
+    /// length = 2 * n_vars + 1
+    marked : Box<[bool]>,
+    /// length = 2 * n_vars + 1
+
     processed : usize,
-    // an index into false_stack stack. Invariant: processed <= false_stack.len()
-    // it points to the first unprocessed false_stack
+    /// an index into false_stack stack. Invariant: processed <= false_stack.len()
+    /// it points to the first unprocessed false_stack
+
+    // level: Level,
+    // decision level
     
 
 
     buffer : Box<[i32]>, // a buffer to contain conflict clauses
-    // the first [`i32`] is used to store the length of the data
-    // length of total buffer = n_vars + 1
+    /// the first [`i32`] is used to store the length of the data
+    /// length of total buffer = n_vars + 1
     allocator : Allocator,
 }
 
 
-impl Default for Solver {
-    fn default() -> Self {
-	Solver {
-	    n_vars : 0,
-	    n_clauses : 0,
-	    n_lemmas : 0,
-	    max_lemmas : 2000,
-	    reason : vec![].into_boxed_slice(),
-	    false_stack : vec![],
-	    assignment : vec![].into_boxed_slice(),
-	    watches : vec![].into_boxed_slice(),
-	    processed : 0,
-	    buffer : vec![].into_boxed_slice(),
-	    allocator : Allocator::small(),
-	}
-    }
-}
-
-
 /// Data Structures
-/// 1. false_stack stack. A stack holding literals in the current
-///    assignment.
-///   1.1 two indices [`assigned`], [`processed`] of the false_stack
-///       stack.
+/// 1. false_stack stack. A stack holding literals in the current assignment.
+///   1.1 two indices [`assigned`], [`processed`] of the false_stack stack.
 ///   1.2 a false stack is maintained to hold status (Decided, etc.)
-/// 2. watched literals. For each literal, we store a 'linked list'
-///    of that it watches. A big array `first[lit]` is used to store
+/// 2. watched literals. For each literal, we store a 'linked list' of that it watches. A big array `first[lit]` is used to store
 ///    the head of that list.
-///    Invariant: At any time, the two watch literals of a clause
-///               must be non-false at levels lower than current level.
-///               After [`propagation()`], they must be non-false
-///               regardless of levels.
-///    Why `two` watches not one? After all, one watch is enough for
-///    checking clause status. The answer is one watch may loss
-///    arc consistency. Consider the following scenario: a clause is
-///    watched by a literal, which is unassigned at this point, and
-///    after current false_stack and implications, all other literals
-///    are assigned to be false. Since the watch literal is left
-///    untouched in this round, the solver will never check this clause.
-///    Therefore, arc consistency is lost.
-/// 3. False_Stack level. There will be no explicit false_stack levels.
-///    The assignment is organized as a stack like structure, with
+///    Invariant: At any time, the two watch literals of a clause  must be non-false at levels lower than current level.
+///               After [`propagation()`], they must be non-false regardless of levels.
+///    Why `two` watches not one? After all, one watch is enough for checking clause status. The answer is one watch may loss
+///    arc consistency. Consider the following scenario: a clause is watched by a literal, which is unassigned at this point, and
+///    after current false_stack and implications, all other literals are assigned to be false. Since the watch literal is left
+///    untouched in this round, the solver will never check this clause. Therefore, arc consistency is lost.
+/// 3. False_Stack level. There will be no explicit false_stack levels. The assignment is organized as a stack like structure, with
 ///    the following form:
 ///    |     ...     |
 ///    | ?   Implied |
@@ -116,30 +107,23 @@ impl Default for Solver {
 ///    | ?   Implied |
 ///    | ~xj Decided | @ level l
 ///    |     ...     |
+///    Gound level assertions are represented as implied literals with reason clauses set to be [`null`]
+/// 4. 
 
 
-/// Learnt clauses are implied by the original set of clauses.
-/// Starting from one original clause (the conflict clause),
-/// a learnt clause is constructed by multip steps of resolusion
-/// of this clause with other clauses.
+/// Learnt clauses are implied by the original set of clauses. Starting from one original clause (the conflict clause),
+/// a learnt clause is constructed by multip steps of resolusion of this clause with other clauses.
 
-/// Backtrack level: the second highest false_stack level in the
-/// learnt clause.
+/// Backtrack level: the second highest false_stack level in the learnt clause.
 
-/// Stop criteria: resolusion stops when current clause contains
-/// the negation of the first Unique Implication Point (UIP) as
-/// the [only] literal that is at current false_stack level.
-/// This criteria provides the [lowest] false_stack level. The reason
-/// is pretty simple: resolusion only eliminates literals at
-/// current assignment, so further resolusion will not affects
-/// other literals other than the first UIP, and will only
-/// introduce other literals with possibly higher false_stack level.
+/// Stop criteria: resolusion stops when current clause contains the negation of the first Unique Implication Point (UIP) as
+/// the [only] literal that is at current false_stack level. This criteria provides the [lowest] false_stack level. The reason
+/// is pretty simple: resolusion only eliminates literals at current assignment, so further resolusion will not affects
+/// other literals other than the first UIP, and will only introduce other literals with possibly higher false_stack level.
 
 
-/// It might be a bit hard to understand why CDCL can find UNSAT.
-/// Here is my thought, imagine that after a long and winding
-/// search, there are a lot of ground level implications that is
-/// produced by backtracking.
+/// It might be a bit hard to understand why CDCL can find UNSAT. Here is my thought, imagine that after a long and winding
+/// search, there are a lot of ground level implications that is produced by backtracking.
 
 
 /// Main routines
@@ -205,11 +189,13 @@ impl Solver {
 		n_clauses : n_clauses,
 		n_lemmas : 0,
 		max_lemmas : 2000,
-		reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
+		// reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
 		false_stack : Vec::with_capacity(n_vars),
 		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
 		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
+		marked : vec![false; 2*n_vars+1].into_boxed_slice(),
 		processed : 0,
+		// level : Level::ground_level(),
 		buffer : vec![0i32; n_vars+1].into_boxed_slice(),
 		allocator : if small {
 		    Allocator::small()
@@ -234,8 +220,7 @@ impl Solver {
     }
 
 
-    /// Allocate a new clause containing literals in [`lits`], set
-    /// up two watched literals scheme
+    /// Allocate a new clause containing literals in [`lits`], set up two watched literals scheme
     fn add_clause(&mut self,
 		  lits: &[i32]) {
 	let clause_ref = self.allocator.allocate_clause(lits);
@@ -262,8 +247,8 @@ impl Solver {
 		// println!("literal {} is implied", lit);
 
 		
-		self.assignment[lit_idx] = Assignment::Implied;
-		self.reason[lit_idx] = cref;
+		self.assignment[lit_idx] = Assignment::Implied(cref);
+		// self.reason[lit_idx] = cref;
 		// FIXME: lit or neg_lit??
 	    },
 	    None => {
@@ -273,13 +258,20 @@ impl Solver {
 	
     }
 
+    fn unassign(&mut self, lit: i32) {
+	unimplemented!("unassign");
+    }
+
     /// naive false_stack
     fn naive_decide(&mut self) -> bool {
 	
 	for var in 1..(self.n_vars as i32 + 1) {
 	    if self.assignment[cal_idx!(var, self.n_vars)] == Assignment::Unassigned
 		&& self.assignment[cal_idx!(-var, self.n_vars)] == Assignment::Unassigned {
-		self.assign(var, None);
+		    self.assign(var, None);
+		    
+		    // self.level.incr();
+		    // increment decision level
 		return true;
 	    }
 	}
@@ -289,21 +281,19 @@ impl Solver {
 
 
     /// Force the variant of two watch literals scheme.
-    /// Precondition: [`watch_lit`] is a watch literal of
-    /// clause [`clause_ref`], and it is assigned to be false
-    /// in current false_stack level
-    /// return [`Unit(lit)`] if the clause is a unit clause, and
-    /// [`lit`] is negation of the only unassigned literal in this clause.
-    /// For example, under partial assignment [x1 -> true, x2 -> false]
-    /// the status of clause ~x1 \/ x2 \/ ~x3 is Unit(x3), it implies that
-    /// x3 should be false
+    /// Precondition: [`watch_lit`] is a watch literal of clause [`clause_ref`], and it is assigned to be false.
+    /// Return [`Unit(lit)`] if the clause is a unit clause, and [`lit`] is negation of the only unassigned literal in this clause.
+    /// For example, under partial assignment [x1 -> true, x2 -> false] the status of clause ~x1 \/ x2 \/ ~x3 is Unit(x3), it implies
+    /// that x3 should be false
     /// Note that it will never touch [`self.watches[wlit]`]
     fn force_clause_status(&mut self,
 			   wlit: i32,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
 	// FIXME: remove
-	// assert!(self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Decided || self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Implied);
+	if self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Unassigned {
+	    panic!("should not call force_clause_status with unassigned literal");
+	}
 	
 	let clause = self.allocator.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
@@ -424,6 +414,9 @@ impl Solver {
 		}
 	    }
 
+	    // FIXME: remove
+	    // assert!(self.watches[cur_lit_idx].is_empty());
+
 	    watch_list.truncate(j);
 	    std::mem::swap(&mut self.watches[cur_lit_idx], &mut watch_list);
 	    // write back updated watch list
@@ -438,11 +431,64 @@ impl Solver {
 
     fn analyze_conflict(&mut self) -> bool {
 
+	/*
+	if self.level == Level::ground_level() {
+	    return false;
+	}
+	// root level conflict found, UNSAT
+	 */
+
+	unsafe { std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, self.n_vars); }
+	// memset [`mark`] array to all false
+
+	let mut len = self.buffer[0] as usize;
+	// let mut conflict_clause = &mut self.buffer[1..];
+
+	for lit in &self.buffer[1..len+1] {
+	    self.marked[cal_idx!(lit, self.n_vars)] = true;
+	}
+	// now all two or more literals at current level are marked
+
+	// FIXME: remove
+	assert_eq!(self.processed, self.false_stack.len());
+	
 	self.processed -= 1;
-	// set [`processed`] to point to the last processed element
+	// set [`processed`] to point to the last assigned element
+
+	while let Assignment::Implied(cref)
+	    = self.assignment[cal_idx!(self.false_stack[self.processed],
+				       self.n_vars)] {
+
+		// FIXME: remove
+		assert_ne!(self.assignment[cal_idx!(self.false_stack[self.processed], self.n_vars)], Assignment::Unassigned);
+	
+		if cref.is_null() {
+		    // ground level conflict
+		    return false;
+		}
+
+		let reason = self.allocator.get_clause(cref);
+		for lit in reason.lits() {
+		    let lit_idx = cal_idx!(lit, self.n_vars);
+		    if !self.marked[lit_idx] {
+			self.marked[lit_idx] = true;
+		    }
+		}
+		// mark literals in reason clause
+
+		let check: usize = self.processed - 1;
+		let no_further_marked = false;
+		
+
+		
+		self.processed -= 1;
+	}
+	// loop over all implied literal
+	// Post invariant: [`processed`] points to the UIP
+	
 
 	
-	true
+	unimplemented!("analyze");
 
     }
 
@@ -587,6 +633,7 @@ mod tests {
 
 	    // simulate a false_stack
 	    solver.assign(1, None);
+	    // solver.level.incr();
 	    solver.propagate();
 
 	    let mut num = 0;
@@ -623,6 +670,7 @@ mod tests {
 	// simlute a decision
 	println!("assign literal 1 to be false");
 	solver.assign(1, None);
+	// solver.level.incr();
 	let propagation_result = solver.propagate();
 
 	assert!(!propagation_result); // conflict should be found
@@ -634,4 +682,5 @@ mod tests {
 
 	
     }
+
 }
