@@ -14,7 +14,6 @@ macro_rules! cal_idx {
     ($lit: expr, $n_vars: expr) => { ($lit + ($n_vars as i32)) as usize }
 }
 
-/*
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 struct Level(u16);
@@ -28,15 +27,22 @@ impl Level {
 	self.0 += 1;
     }
 }
- */
 
 
 // #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Assignment {
-    Decided,
-    Implied(ClauseRef),
+    Assigned(Level),
     Unassigned,
+}
+
+impl Assignment {
+    fn level(&self) -> Level {
+	match self {
+	    Assignment::Assigned(l) => { *l },
+	    Assignment::Unassigned => { Level(u16::MAX) },
+	}
+    }
 }
 
 /// [`Delayed`] clause can be either unit or unresolved or satisfed
@@ -55,8 +61,8 @@ pub struct Solver {
     n_lemmas : usize, /// number of learned clauses
     max_lemmas : usize, /// maximum number of learned clauses
     
-    // reason : Box<[ClauseRef]>, // the reason clause for an implication
-    // length = 2 * n_vars + 1
+    reason : Box<[ClauseRef]>, /// the reason clause for an implication
+    /// length = 2 * n_vars + 1
 
     
     false_stack : Vec<i32>, /// false_stack stack, holds literals that is assigned to be false
@@ -72,8 +78,8 @@ pub struct Solver {
     /// an index into false_stack stack. Invariant: processed <= false_stack.len()
     /// it points to the first unprocessed false_stack
 
-    // level: Level,
-    // decision level
+    level: Level,
+    /// decision level
     
 
 
@@ -189,13 +195,13 @@ impl Solver {
 		n_clauses : n_clauses,
 		n_lemmas : 0,
 		max_lemmas : 2000,
-		// reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
+		reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
 		false_stack : Vec::with_capacity(n_vars),
 		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
 		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
 		marked : vec![false; 2*n_vars+1].into_boxed_slice(),
 		processed : 0,
-		// level : Level::ground_level(),
+		level : Level::ground_level(),
 		buffer : vec![0i32; n_vars+1].into_boxed_slice(),
 		allocator : if small {
 		    Allocator::small()
@@ -237,9 +243,14 @@ impl Solver {
     }
 
     /// Assign [`lit`] to be [`false`], set reason clause
-    fn assign(&mut self, lit: i32, reason: Option<ClauseRef>) {
+    /// TODO: move push logic outside of [`assign()`]
+    fn assign(&mut self, lit: i32, reason: ClauseRef) {
 	self.false_stack.push(lit);
 	let lit_idx = cal_idx!(lit, self.n_vars);
+
+	self.assignment[lit_idx] = Assignment::Assigned(self.level);
+	self.reason[lit_idx] = reason;
+	/*
 	match reason {
 	    Some(cref) => {
 
@@ -248,17 +259,21 @@ impl Solver {
 
 		
 		self.assignment[lit_idx] = Assignment::Implied(cref);
-		// self.reason[lit_idx] = cref;
+		self.reason[lit_idx] = cref;
 		// FIXME: lit or neg_lit??
 	    },
 	    None => {
 		self.assignment[lit_idx] = Assignment::Decided;
 	    }
 	}
+	 */
 	
     }
 
     fn unassign(&mut self, lit: i32) {
+	let lit_idx = cal_idx!(lit, self.n_vars);
+	self.assignment[lit_idx] = Assignment::Unassigned;
+	
 	unimplemented!("unassign");
     }
 
@@ -268,9 +283,9 @@ impl Solver {
 	for var in 1..(self.n_vars as i32 + 1) {
 	    if self.assignment[cal_idx!(var, self.n_vars)] == Assignment::Unassigned
 		&& self.assignment[cal_idx!(-var, self.n_vars)] == Assignment::Unassigned {
-		    self.assign(var, None);
+		    self.assign(var, ClauseRef::null());
 		    
-		    // self.level.incr();
+		    self.level.incr();
 		    // increment decision level
 		return true;
 	    }
@@ -386,7 +401,7 @@ impl Solver {
 
 		match self.force_clause_status(cur_lit, clause_ref) {
 		    ClauseStatus::Unit(implied_lit) => {
-			self.assign(implied_lit, Some(clause_ref));
+			self.assign(implied_lit, clause_ref);
 			i += 1;
 		    },
 		    ClauseStatus::Conflict => {
@@ -431,65 +446,108 @@ impl Solver {
 
     fn analyze_conflict(&mut self) -> bool {
 
-	/*
-	if self.level == Level::ground_level() {
-	    return false;
-	}
+	if self.level == Level::ground_level() { return false; }
 	// root level conflict found, UNSAT
-	 */
 
 	unsafe { std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, self.n_vars); }
 	// memset [`mark`] array to all false
 
-	let mut len = self.buffer[0] as usize;
+	// let mut len = self.buffer[0] as usize;
 	// let mut conflict_clause = &mut self.buffer[1..];
+	// the last implication is the second literal of the conflict clause
 
-	for lit in &self.buffer[1..len+1] {
-	    self.marked[cal_idx!(lit, self.n_vars)] = true;
+	let mut snd_highest_level = Level::ground_level();
+	// maintain the highest level other than current level in conflict clause
+
+	for lit in &self.buffer[1..self.buffer[0] as usize + 1] {
+	    let lit_idx = cal_idx!(lit, self.n_vars);
+	    self.marked[lit_idx] = true;
+	    let level = self.assignment[lit_idx].level();
+	    if level < self.level {
+		snd_highest_level = std::cmp::max(snd_highest_level, level);
+	    }
 	}
-	// now all two or more literals at current level are marked
+	// mark all literals in conflict clause
 
-	// FIXME: remove
-	assert_eq!(self.processed, self.false_stack.len());
+	// We keep the last element of the conflict clause to be the literal that is to be resolved throughout the resolving process
 	
-	self.processed -= 1;
-	// set [`processed`] to point to the last assigned element
+	loop {
+	    
+	    let uip = self.false_stack.pop().unwrap(); // assume uip found
+	    let uip_idx = cal_idx!(uip, self.n_vars);
+	    if self.reason[uip_idx].is_null() { break; } // decision reached
 
-	while let Assignment::Implied(cref)
-	    = self.assignment[cal_idx!(self.false_stack[self.processed],
-				       self.n_vars)] {
+	    if self.marked[uip_idx] {
+
+		let mut is_uip = true;
+		// assume that it is indeed the first UIP
 
 		// FIXME: remove
-		assert_ne!(self.assignment[cal_idx!(self.false_stack[self.processed], self.n_vars)], Assignment::Unassigned);
-	
-		if cref.is_null() {
-		    // ground level conflict
-		    return false;
-		}
+		assert!(self.buffer[0] >= 1);
 
-		let reason = self.allocator.get_clause(cref);
-		for lit in reason.lits() {
-		    let lit_idx = cal_idx!(lit, self.n_vars);
+		let (mut len, mut conflict_cls) = self.buffer.split_at_mut(1);
+		let old_len = len[0] as usize;
+		let uip_idx_in_buffer = conflict_cls[..old_len].iter().position(|lit| *lit == uip).unwrap();
+		conflict_cls[uip_idx_in_buffer] = *conflict_cls.last().unwrap();
+		len[0] -= 1;
+		// maintain the above invariant, place the literal to be resolved (or first uip) at the last element and then remove
+
+		let old_snd_highest_level = snd_highest_level;
+
+		let reason_cls = self.allocator.get_clause(self.reason[uip_idx]);
+		for lit in reason_cls.lits() {
+		    if *lit == -uip { continue; }
+
+		    let lit_idx = cal_idx!(*lit, self.n_vars);
+
 		    if !self.marked[lit_idx] {
-			self.marked[lit_idx] = true;
+			let assign_level = self.assignment[lit_idx].level();
+			if assign_level == self.level {
+			    is_uip = false;
+			} else {
+			    snd_highest_level = std::cmp::max(snd_highest_level, assign_level);
+			}
+
+			conflict_cls[len[0] as usize] = *lit;
+			len[0] += 1;
+
 		    }
 		}
-		// mark literals in reason clause
-
-		let check: usize = self.processed - 1;
-		let no_further_marked = false;
+		// resolve current conflict clause with [`uip`]'s reason clause
 		
+		if is_uip {
+		    snd_highest_level = old_snd_highest_level;
+		    len[0] = old_len as i32;
+		    // undo resolvement by keeping old len
+		    break;
+		}
+		// undo resolvement if [`uip`] is indeed the first UIP
 
+		for lit in &conflict_cls[old_len..len[0] as usize] { self.marked[cal_idx!(lit, self.n_vars)] = true; }
+		// marked all elements
 		
-		self.processed -= 1;
+	    }
+
+
+	    self.unassign(uip);
 	}
-	// loop over all implied literal
-	// Post invariant: [`processed`] points to the UIP
-	
+	// after this loop, assignment down to the first UIP is unassigned, and the negation of the first UIP is
+	// at conflict_clause[0], buffer[1]. Now conflict clause contains -uip as the only literal at current decision
+	// level, so [`snd_highest_level`] is indeed the second highest level in the clause.
+
+
+	loop {
+	    let lit = self.false_stack.pop().unwrap();
+	    if self.assignment[cal_idx!(lit, self.n_vars)].level() == snd_highest_level { break; }
+	    self.unassign(lit);
+	}
+	// further undo assignment
 
 	
-	unimplemented!("analyze");
+	self.level = snd_highest_level;
+	// set backtrack level
 
+	true
     }
 
 
@@ -632,8 +690,8 @@ mod tests {
 
 
 	    // simulate a false_stack
-	    solver.assign(1, None);
-	    // solver.level.incr();
+	    solver.assign(1, ClauseRef::null());
+	    solver.level.incr();
 	    solver.propagate();
 
 	    let mut num = 0;
@@ -669,8 +727,8 @@ mod tests {
 
 	// simlute a decision
 	println!("assign literal 1 to be false");
-	solver.assign(1, None);
-	// solver.level.incr();
+	solver.assign(1, ClauseRef::null());
+	solver.level.incr();
 	let propagation_result = solver.propagate();
 
 	assert!(!propagation_result); // conflict should be found
