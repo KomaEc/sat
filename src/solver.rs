@@ -11,7 +11,9 @@ use std::ops::Add;
 
 /// Calculate the index of a literal into arrays like [`assignment`]
 macro_rules! cal_idx {
-    ($lit: expr, $n_vars: expr) => { ($lit + ($n_vars as i32)) as usize }
+    ($lit: expr, $n_vars: expr) => {
+	($lit + ($n_vars as i32)) as usize
+    }
 }
 
 #[repr(transparent)]
@@ -83,9 +85,8 @@ pub struct Solver {
     
 
 
-    buffer : Box<[i32]>, // a buffer to contain conflict clauses
-    /// the first [`i32`] is used to store the length of the data
-    /// length of total buffer = n_vars + 1
+    buffer : Vec<i32>, // a buffer to contain conflict clauses
+    /// capacity of total buffer = n_vars
     allocator : Allocator,
 }
 
@@ -202,7 +203,7 @@ impl Solver {
 		marked : vec![false; 2*n_vars+1].into_boxed_slice(),
 		processed : 0,
 		level : Level::ground_level(),
-		buffer : vec![0i32; n_vars+1].into_boxed_slice(),
+		buffer : vec![0i32; n_vars],
 		allocator : if small {
 		    Allocator::small()
 		} else {
@@ -408,9 +409,8 @@ impl Solver {
 			let lits = self.allocator
 			    .get_clause(clause_ref)
 			    .lits();
-			self.buffer[0] = lits.len() as i32;
-			self.buffer[1..lits.len()+1]
-			    .clone_from_slice(lits);
+			self.buffer.truncate(0);
+			self.buffer.extend_from_slice(lits);
 			// copy conflict clause into buffer
 			conflict = true;
 			break;
@@ -459,8 +459,8 @@ impl Solver {
 	let mut snd_highest_level = Level::ground_level();
 	// maintain the highest level other than current level in conflict clause
 
-	for lit in &self.buffer[1..self.buffer[0] as usize + 1] {
-	    let lit_idx = cal_idx!(lit, self.n_vars);
+	for lit in &self.buffer {
+	    let lit_idx = cal_idx!(*lit, self.n_vars);
 	    self.marked[lit_idx] = true;
 	    let level = self.assignment[lit_idx].level();
 	    if level < self.level {
@@ -482,14 +482,9 @@ impl Solver {
 		let mut is_uip = true;
 		// assume that it is indeed the first UIP
 
-		// FIXME: remove
-		assert!(self.buffer[0] >= 1);
-
-		let (mut len, mut conflict_cls) = self.buffer.split_at_mut(1);
-		let old_len = len[0] as usize;
-		let uip_idx_in_buffer = conflict_cls[..old_len].iter().position(|lit| *lit == uip).unwrap();
-		conflict_cls[uip_idx_in_buffer] = *conflict_cls.last().unwrap();
-		len[0] -= 1;
+		let old_len = self.buffer.len();
+		let uip_idx_in_buffer = self.buffer[..old_len].iter().position(|lit| *lit == uip).unwrap();
+		self.buffer.swap_remove(uip_idx_in_buffer);
 		// maintain the above invariant, place the literal to be resolved (or first uip) at the last element and then remove
 
 		let old_snd_highest_level = snd_highest_level;
@@ -508,22 +503,20 @@ impl Solver {
 			    snd_highest_level = std::cmp::max(snd_highest_level, assign_level);
 			}
 
-			conflict_cls[len[0] as usize] = *lit;
-			len[0] += 1;
-
+			self.buffer.push(*lit);
 		    }
 		}
 		// resolve current conflict clause with [`uip`]'s reason clause
 		
 		if is_uip {
 		    snd_highest_level = old_snd_highest_level;
-		    len[0] = old_len as i32;
+		    self.buffer.truncate(old_len);
 		    // undo resolvement by keeping old len
 		    break;
 		}
 		// undo resolvement if [`uip`] is indeed the first UIP
 
-		for lit in &conflict_cls[old_len..len[0] as usize] { self.marked[cal_idx!(lit, self.n_vars)] = true; }
+		for lit in &self.buffer[old_len..] { self.marked[cal_idx!(*lit, self.n_vars)] = true; }
 		// marked all elements
 		
 	    }
@@ -732,7 +725,7 @@ mod tests {
 	let propagation_result = solver.propagate();
 
 	assert!(!propagation_result); // conflict should be found
-	assert_eq!(solver.buffer[1..(solver.buffer[0] as usize + 1)], [3, 2]);
+	assert_eq!(solver.buffer, vec![3, 2]);
 
 	println!("propagation result: {}", propagation_result);
 
