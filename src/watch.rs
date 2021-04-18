@@ -4,7 +4,7 @@ use crate::{
 };
 
 use std::vec::Vec;
-use std::iter::{Iterator, IntoIterator};
+use std::iter::{IntoIterator};
 use std::ops::{Index, IndexMut};
 
 #[repr(transparent)]

@@ -3,7 +3,7 @@
 use crate::{
     clause::{Clause}
 };
-use std::iter::Iterator;
+
 
 pub struct Allocator {
     data : Box<[i32]>, // allocator owns all the data

@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use std::io;
 use std::io::{Read, BufReader};
 use std::vec::*;
-use std::error::Error;
+
 
 
 /// return n_vars, n_clauses, and all clause
@@ -15,7 +15,7 @@ fn parse_from_file(filename: &str)
 }
 
 
-fn dimacs_parser<R>(mut br: BufReader<R>)
+fn dimacs_parser<R>(br: BufReader<R>)
 	    -> io::Result<(usize, usize, Vec<Vec<i32>>)>
 where R : Read {
 
@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     use proptest::prelude::*;
-    use proptest::collection::{hash_set, vec};
+    use proptest::collection::{vec};
 
     #[test]
     fn test_parse_specialized() -> std::result::Result<(), std::io::Error> {
@@ -141,7 +141,7 @@ mod tests {
 
     /*
     prop_compose! {
-
+z3
 	fn clause(n_vars: usize)
 	    (length in 2usize..n_vars+1)
 	    (signs in vec(any::<bool>(), length),
