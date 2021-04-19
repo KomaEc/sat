@@ -1,21 +1,24 @@
-# A SIMPLE CDCL SAT SOLVER
+# A Simple CDCL SAT Solver
 
 ## Design Principles of simplesat
-Simplesat features several optimization strategies employed by many modern CDCL SAT solvers. For instance, two watched literals scheme, VISD.
+Simplesat will feature several optimization strategies employed by most modern CDCL SAT solvers.
+- [x] Two watched literals scheme
+- [ ] VISD
+- [ ] Lemma deletion
+- [ ] Restart
 
-Clauses are pre-allocated in a big array. Each clause is represented by its length and a slice.
+It is documented and **property-based tested**. The properties that are tested:
+* Invariants of the two watched literals scheme
+* Solver soundness
 
-Firstly, do not consider deleting lemma.
 
 ## Termination Property
-The termination property of the CDCL algorithm is not obvious (at least to me). Since the backjump mechanism does not systematically explore the search space, it is hypothetical that some paths may be repeatedly reached.
+The termination property of the CDCL algorithm is not that obvious (at least to me). It is hypothetical that some paths may be repeatedly reached, since the backjump mechanism does not systematically explore the search space
 
 To prove termination, we aim at the following theorem.
+
 **Theorem** It is never the case that the solver enters decision level *dl* again with the same state.
 
-At first glance, it seems that learned clauses may help. Indeed, a learned clause prevent the solver from entering the path that results in a backjump and generating the clause itself. However, realistic solver appeals to forget learned clauses at certain points. Keeping all learned clauses not only leads to high time consumption of the propagation process, but also makes computer memory explode: in worst case, the number of learned clauses can reach O(2^n).
+At first glance, it seems that learned clauses may help. Indeed, a learned clause prevent the solver from entering the path that results in a backjump and generating itself. However, realistic solver appeals to forget learned clauses at certain points. Keeping all learned clauses not only leads to high time consumption of the propagation process, but also makes computer memory explode: in worst case, the number of learned clauses can reach O(2^n).
 
-In fact, the solver terminates even if we do not keep learned clauses at all! It is useful to treat backjump and the subsequent propagation as a whole: each backjump generates a direct implication by propagation. Now consider a partial assignment *P* at decision level *dl*, and assume that later the solver backjumps to decision level *dl'* with *dl'* < *dl* and partial assignment *P'*. Apparently *P* subsumes *P'*. Note that an implication at *dl'* is made immediately due to the backjump, augmenting *P'* to be *P''*. This implication must negate the assignment of a literal that is the decision or implication at level *dl* or higher, therefore, *P* does not subsume *P''*. If the solver progresses to decision level *dl* again without further backjumps, it is with a different partial assignment. Note that as long as the solver does not backjump to decision level lower than *dl'*, the above implication remains there. Therefore, we have
-**Lemma** If the solver progresses to decision level *dl* again without further backjumps to levels lower than *dl'*, it is with a different partial assignment.
-
-We are closer to the theorem. Now the obstacle seems to be that what if the solver backjumps to a level lower than *dl'*? Note that even if the immediate implication is implied by *P*, it is with a different decision level. Therefore, the next time it reaches *dl*, it is with a different state.
+In fact, the solver terminates even if we do not keep learned clauses at all! The reason lies in the immediate implication of the learned asserting clause. Suppose the solver is currently at decision level *dl*, and will return back to *dl* again. Assume *dl'* is the lowest level the solver should reach in this period. Of course, *dl' <= dl*. Since *dl'* is the lowest, the solver can only backjump to this level. Each time the solver reaches *dl'*, a literal is immediate asserted by the learned clause at level *dl'*. So even if learned clauses are discarded right away, when the solver returns back to *dl*, it is with a different partial assignment.
