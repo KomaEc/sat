@@ -75,8 +75,9 @@ pub struct Solver {
     /// length = 2 * n_vars + 1
 
     processed : usize,
-    /// an index into false_stack stack. Invariant: processed <= false_stack.len()
-    /// it points to the first unprocessed false_stack
+    /// a pointer into the false stack for processing literals
+    /// Invariant: processed = false_stack.len() after succesful propagation and false_stack.len()-1 after
+    /// analyze
 
     level: Level,
     /// decision level
@@ -129,58 +130,6 @@ pub struct Solver {
 /// It might be a bit hard to understand why CDCL can find UNSAT. Here is my thought, imagine that after a long and winding
 /// search, there are a lot of ground level implications that is produced by backtracking.
 
-
-/// Main routines
-/// - [x] The main solve loop
-/// ```rust
-/// fn solve() {
-///   loop {
-///     if not propagate() {
-///       analyze();
-///     } else if not decide() {
-///       return SAT;
-///     }
-///   }
-/// }
-/// ```
-///
-/// - [x] propagate()
-/// ```rust
-/// fn propagate() -> bool {
-///   loop {
-///     if processed == assigned {
-///       break;
-///     }
-///     // else processed < assigned
-///     let cur_lit = false_stack[++processed];
-///     let clause;
-///
-///     for clause in watch[cur_lit] {
-///       if is_unit(clause) {
-///         let implied_lit = lit_implied_by(clause)
-///         false_stack[++assigned] = implied_lit;
-///         antecedant[lit] = clause;
-///       } else if conflict(clause) {
-///         store current clause in buffer;
-///         return false;
-///       }
-///     }
-///
-///   } // end of outer loop
-///   return true;
-/// }
-/// ```
-///
-/// - [ ] analyze()
-/// // current conflict clause is already stored in the buffer
-/// fn analyze() {
-///   while !stop_criterion_met {
-///     let lit = last assigned literal in current conflict;
-///     let reason_cls = reason[lit];
-///     conflict_cls = resolve(lit, conflict_cls, reason_cls);
-///   }
-///   
-/// }
 impl Solver {
 	
     fn from_sat_instance(n_vars: usize,
@@ -247,7 +196,10 @@ impl Solver {
 
     /// add lemma that is located in buffer
     fn add_lemma_in_buffer(&mut self) -> ClauseRef {
+	
 	if self.buffer.len() == 1 { return ClauseRef::null(); }
+
+	self.n_lemmas += 1;
 	
 	let clause_ref = self.allocator.allocate_clause(&self.buffer[..]);
 
@@ -280,7 +232,6 @@ impl Solver {
 	self.assignment[lit_idx] = Assignment::Unassigned;
     }
 
-    /// naive false_stack
     fn naive_decide(&mut self) -> bool {
 	self.level.incr();
 	// increment decision level
@@ -441,7 +392,7 @@ impl Solver {
 	    if conflict { return false; }
 	    
 	}
-
+	
 	true // propagation done, no conflict found
     }
 
@@ -453,7 +404,9 @@ impl Solver {
 
 	if self.level == Level::ground_level() { return false; } // root level conflict found, UNSAT
 
-	unsafe { std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars + 1); } // memset [`mark`] array to all false
+	unsafe { // memset [`mark`] array to all false
+	    std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars + 1);
+	}
 
 	for lit in &self.buffer { // mark all literals in conflict clause
 	    self.marked[cal_idx!(*lit, self.n_vars)] = true;
@@ -468,12 +421,11 @@ impl Solver {
 	}
 	// now [`processed`] points to the last decision literal that is marked
 
-	let mut snd_marked;
-	{
+	let mut snd_marked = {
 	    let mut i = self.processed-1;
 	    while !self.marked[cal_idx!(self.false_stack[i], self.n_vars)] { i -= 1; }
-	    snd_marked = i;
-	}
+	    i
+	};
 	// snd_marked is the last literal different from [`processed`] but is also marked
 
 	debug_assert!(snd_marked < self.processed); // snd_marked must be properly initialized
@@ -495,24 +447,9 @@ impl Solver {
 	    
 	    
 	    let reason_cls = self.allocator.get_clause(self.reason[lit_idx]);
-	    self.buffer.swap_remove(self.buffer.iter().position(|lit2| *lit2 == lit).unwrap());
-	    // let old_len = self.buffer.len();
-	    // remove [`lit`] in original conflict clause
-	    for lit2 in reason_cls.lits() {
-		let lit2_idx = cal_idx!(*lit2, self.n_vars);
-		if *lit2 == -lit { continue; }
-		if !self.marked[lit2_idx] {
-		    self.marked[lit2_idx] = true;
-		    self.buffer.push(*lit2);
-		}
-	    }
-	    // first, resolve conflict clause with the reason clause of [`processed`]
-
-	    #[cfg(debug_assertions)]
-	    println!("resolvent: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
-	    debug_assert!(!self.buffer.contains(&lit)); debug_assert!(!self.buffer.contains(&(-lit)));
-
-
+	    for lit in reason_cls.lits() { self.marked[cal_idx!(lit, self.n_vars)] = true; }
+	    // mark all literals in reason clause
+	    
 	    while self.processed > snd_marked {
 		self.unassign(self.false_stack[self.processed]);
 		self.processed -= 1;
@@ -521,9 +458,7 @@ impl Solver {
 
 	    {
 		let mut i = snd_marked;
-		loop {
-		    if self.reason[cal_idx!(self.false_stack[i], self.n_vars)].is_null() { break; }
-		    // decision reached, no further marked, UIP found
+		while !self.reason[cal_idx!(self.false_stack[i], self.n_vars)].is_null() {
 		    i -= 1;
 		    if self.marked[cal_idx!(self.false_stack[i], self.n_vars)] {
 			snd_marked = i; break;
@@ -531,29 +466,37 @@ impl Solver {
 		}
 	    }
 	    // find snd_marked
-	    
+
 	    if snd_marked == self.processed { break; }
 	    // first UIP found
 
-	    /*
-	    for lit2 in &self.buffer[old_len..] {
-		self.marked[cal_idx!(*lit2, self.n_vars)] = true;
-	    }
-	     */
-	    // else mark all literals in the previous reason clause
 	}
 	// Post invariant: [`processed`] points to the first UIP. Literals above [`processed`] are unassigned
 
+
 	let first_uip = self.false_stack[self.processed];
+	{
+	    let assign_idx = self.processed;
+	    self.buffer.truncate(0);
+	    self.processed += 1;
+	    while self.processed > 0 {
+		let lit = self.false_stack[self.processed-1]; let lit_idx = cal_idx!(lit, self.n_vars);
+		if self.assignment[lit_idx].level() == Level::ground_level() { break; } // ground level assertions are ruled out
+		if self.marked[lit_idx] { self.buffer.push(lit); }
+		self.processed -= 1;
+	    }
+	    self.processed = assign_idx;
+	}
+	// build conflict clause
 
 	#[cfg(debug_assertions)]
 	println!("uip found: {}", first_uip);
 	#[cfg(debug_assertions)]
 	println!("clause learned: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
-	debug_assert!(self.buffer.contains(&self.false_stack[self.processed])); // conflict clause contains the negation of the first UIP
+	debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
 	// since this solver is false-based, it contains the UIP
 
-	let mut snd_highest_level = self.buffer
+	let snd_highest_level = self.buffer
 	    .iter()
 	    .fold(Level::ground_level(),
 		  |acc, lit| {
@@ -562,12 +505,13 @@ impl Solver {
 		      else                  { acc }
 		  });
 
-	loop {
-	    let lit = self.false_stack[self.processed];
+
+	self.processed += 1;
+	while self.processed > 0 {
+	    let lit = self.false_stack[self.processed-1];
 	    let level = self.assignment[cal_idx!(lit, self.n_vars)].level();
-	    if level == snd_highest_level { self.processed += 1; break; }
+	    if level == snd_highest_level { break; }
 	    self.unassign(lit);
-	    if self.processed == 0 { break; } // deal with corner case where there is no ground assertion and solver learns an unary clause
 	    self.processed -= 1;
 	}
 	// after this loop, [`processed`] is set to be the correct decision length
@@ -665,6 +609,51 @@ mod tests {
 	    }
 	    true
 	}
+
+
+	fn watch_in_first_two(&self) -> bool {
+	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
+		    if lit != lits[0] && lit != lits[1] {
+			return false;
+		    }
+		}
+	    }
+	    true
+	}
+
+	fn watched_clause_num(&self) -> usize {
+	    let mut res = 0;
+	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		    res += 1;
+		}
+	    }
+	    res / 2
+	}
+
+	fn watch_scheme_invariant(&self) -> bool {
+	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
+		if lit == 0 { continue; }
+		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		    if !(self.assignment[cal_idx!(lit, self.n_vars)] == Assignment::Unassigned) {
+			// if [`lit`] is falsified, then another watch must be satisfied
+			let lits = self.allocator.get_clause(watch.clause_ref()).lits();
+			let lit2 = {
+			    if lit == lits[0] { lits[1] }
+			    else              { lits[0] }
+			};
+			if let Assignment::Unassigned = self.assignment[cal_idx!(-lit2, self.n_vars)] {
+			    return false;
+			}
+		    }
+		}
+	    }
+	    true
+	}
     }
 
 
@@ -749,13 +738,13 @@ mod tests {
 		     vec![-2, -1, -3],
 		     vec![1, 2, 3]], true);
 
-	// solver.print_all_clauses();
+	solver.print_all_clauses();
 	// solver.print_watch();
 
 	// simlute a decision
 	// println!("assign literal 1 to be false");
-	solver.assign(1, ClauseRef::null());
 	solver.level.incr();
+	solver.assign(1, ClauseRef::null());
 	let propagation_result = solver.propagate();
 
 	assert!(!propagation_result); // conflict should be found
@@ -764,9 +753,6 @@ mod tests {
 	// println!("propagation result: {}", propagation_result);
 
 	solver.print_watch();
-
-	solver.analyze_conflict();
-
 	// assert!(false);
     }
 
@@ -786,25 +772,6 @@ mod tests {
 			    vec![-4, -2, 1, -3],
 			    vec![-1, 5, 4],
 			    vec![-3, -5]], true);
-	// solver.print_all_clauses();
-	if solver.solve() {
-	    println!("SAT");
-	} else {
-	    println!("UNSAT");
-	}
-    }
-
-    #[test]
-    fn test_solver_memset_marked() {
-	let mut solver
-	    = Solver::from_sat_instance(
-		3, 7, vec![vec![3, 2, 1],
-			   vec![1, -3, 2],
-			   vec![-3, -2],
-			   vec![2, -1, -3],
-			   vec![3, -2],
-			   vec![-3, -1, -2],
-			   vec![-2, 3, -1]], true);
 	// solver.print_all_clauses();
 	if solver.solve() {
 	    println!("SAT");
@@ -904,6 +871,87 @@ mod tests {
 		assert!(solver.verify());
 	    }
 	    println!("");
+	}
+    }
+
+    proptest! {
+	#![proptest_config(ProptestConfig{
+	    max_shrink_iters : 0,
+	    ..ProptestConfig::default()
+	})]
+	#[test]
+	fn test_processed_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
+	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    loop {
+		if !solver.propagate() {
+		    if !solver.analyze_conflict() { break; }
+		    assert_eq!(solver.processed, solver.false_stack.len()-1);
+		} else {
+		    assert_eq!(solver.processed, solver.false_stack.len());
+		    if !solver.naive_decide() {
+			break;
+		    }
+		}
+	    }
+	}
+    }
+
+    proptest! {
+	#[test]
+	fn test_watch_in_first_two((n_vars, n_clauses, clauses) in sat_instance()) {
+	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    loop {
+		if !solver.propagate() {
+		    assert!(solver.watch_in_first_two());
+		    if !solver.analyze_conflict() { break; }
+		} else {
+		    assert!(solver.watch_in_first_two());
+		    if !solver.naive_decide() {
+			break;
+		    }
+		}
+	    }
+	}
+    }
+
+    proptest! {
+	#[test]
+	fn test_watched_clause_num((n_vars, n_clauses, clauses) in sat_instance()) {
+	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    loop {
+		if !solver.propagate() {
+		    assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
+		    if !solver.analyze_conflict() {
+			assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
+			break;
+		    } else {
+			assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
+		    }
+		} else {
+		    assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
+		    if !solver.naive_decide() {
+			break;
+		    }
+		}
+			
+	    }
+	}
+    }
+
+    proptest! {
+	#[test]
+	fn test_watch_scheme_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
+	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    loop {
+		if !solver.propagate() {
+		    if !solver.analyze_conflict() { break; }
+		} else {
+		    assert!(solver.watch_scheme_invariant());
+		    if !solver.naive_decide() {
+			break;
+		    }
+		}
+	    }
 	}
     }
 
