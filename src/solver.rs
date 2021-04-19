@@ -383,7 +383,6 @@ impl Solver {
 	loop {
 	    if self.processed == self.false_stack.len() { break; }
 	    // else processed <= decided
-
 	    let cur_lit = self.false_stack[self.processed]; self.processed += 1; 
 	    // get current unprocessed false_stack literal that is assigned
 	    // to be false
@@ -452,14 +451,13 @@ impl Solver {
 	#[cfg(debug_assertions)]
 	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
 
-	if self.level == Level::ground_level() { return false; }
-	// root level conflict found, UNSAT
+	if self.level == Level::ground_level() { return false; } // root level conflict found, UNSAT
 
-	unsafe { std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars + 1); }
-	// memset [`mark`] array to all false
+	unsafe { std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars + 1); } // memset [`mark`] array to all false
 
-	for lit in &self.buffer { self.marked[cal_idx!(*lit, self.n_vars)] = true; }
-	// mark all literals in conflict clause
+	for lit in &self.buffer { // mark all literals in conflict clause
+	    self.marked[cal_idx!(*lit, self.n_vars)] = true;
+	}
 
 	debug_assert!(self.false_stack.len() >= 1);
 
@@ -498,13 +496,13 @@ impl Solver {
 	    
 	    let reason_cls = self.allocator.get_clause(self.reason[lit_idx]);
 	    self.buffer.swap_remove(self.buffer.iter().position(|lit2| *lit2 == lit).unwrap());
-	    let old_len = self.buffer.len();
+	    // let old_len = self.buffer.len();
 	    // remove [`lit`] in original conflict clause
 	    for lit2 in reason_cls.lits() {
 		let lit2_idx = cal_idx!(*lit2, self.n_vars);
 		if *lit2 == -lit { continue; }
 		if !self.marked[lit2_idx] {
-		    // self.marked[lit2_idx] = true;
+		    self.marked[lit2_idx] = true;
 		    self.buffer.push(*lit2);
 		}
 	    }
@@ -537,9 +535,11 @@ impl Solver {
 	    if snd_marked == self.processed { break; }
 	    // first UIP found
 
+	    /*
 	    for lit2 in &self.buffer[old_len..] {
 		self.marked[cal_idx!(*lit2, self.n_vars)] = true;
 	    }
+	     */
 	    // else mark all literals in the previous reason clause
 	}
 	// Post invariant: [`processed`] points to the first UIP. Literals above [`processed`] are unassigned
