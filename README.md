@@ -13,11 +13,11 @@ It is documented and **property-based tested**. The properties that are tested:
 
 
 ## Termination Property
-The termination property of the CDCL algorithm is not that obvious (at least to me). It is hypothetical that some paths may be repeatedly reached, since the backjump mechanism does not systematically explore the search space
+The termination property of the CDCL algorithm is not that obvious (at least to me). It is hypothetical that some paths may be repeatedly reached, since the backjump mechanism does not systematically explore the search space.
 
 To prove termination, we aim at the following theorem.
 
-**Theorem** It is never the case that the solver enters decision level *dl* again with the same state.
+**Theorem:** It is never the case that the solver enters decision level *dl* again with the same state.
 
 At first glance, it seems that learned clauses may help. Indeed, a learned clause prevent the solver from entering the path that results in a backjump and generating itself. However, realistic solver appeals to forget learned clauses at certain points. Keeping all learned clauses not only leads to high time consumption of the propagation process, but also makes computer memory explode: in worst case, the number of learned clauses can reach O(2^n).
 
