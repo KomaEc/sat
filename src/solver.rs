@@ -551,7 +551,7 @@ mod tests {
     use proptest::collection::{hash_set, vec};
 
 
-
+    /// utility functions and properties to be tested
     impl Solver {
 	fn print_all_clauses(&self) {
 	    let mut occurs = std::collections::HashMap::new();
@@ -624,15 +624,13 @@ mod tests {
 	    true
 	}
 
-	fn watched_clause_num(&self) -> usize {
+	fn watched_clause_not_lost(&self) -> bool {
 	    let mut res = 0;
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
-		    res += 1;
-		}
+		res += self.watches[cal_idx!(lit, self.n_vars)].len()
 	    }
-	    res / 2
+	    res / 2 == self.n_clauses + self.n_lemmas
 	}
 
 	fn watch_scheme_invariant(&self) -> bool {
@@ -686,10 +684,6 @@ mod tests {
 
 
     proptest! {
-	#![proptest_config(ProptestConfig{
-	    max_shrink_iters : 0,
-	    ..ProptestConfig::default()
-	})]
 	#[test]
 	fn test_solver_initialize((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
@@ -842,12 +836,8 @@ mod tests {
 
 
     proptest! {
-	#![proptest_config(ProptestConfig{
-	    max_shrink_iters : 0,
-	    ..ProptestConfig::default()
-	})]
 	#[test]
-	fn test_solver_not_fail((n_vars, n_clauses, clauses) in sat_instance()) {
+	fn test_solver_terminate((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
 	    // solver.print_all_clauses();
 	    if solver.solve() {
@@ -875,10 +865,6 @@ mod tests {
     }
 
     proptest! {
-	#![proptest_config(ProptestConfig{
-	    max_shrink_iters : 0,
-	    ..ProptestConfig::default()
-	})]
 	#[test]
 	fn test_processed_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
@@ -898,54 +884,14 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_watch_in_first_two((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
-	    loop {
-		if !solver.propagate() {
-		    assert!(solver.watch_in_first_two());
-		    if !solver.analyze_conflict() { break; }
-		} else {
-		    assert!(solver.watch_in_first_two());
-		    if !solver.naive_decide() {
-			break;
-		    }
-		}
-	    }
-	}
-    }
-
-    proptest! {
-	#[test]
-	fn test_watched_clause_num((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
-	    loop {
-		if !solver.propagate() {
-		    assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
-		    if !solver.analyze_conflict() {
-			assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
-			break;
-		    } else {
-			assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
-		    }
-		} else {
-		    assert_eq!(solver.watched_clause_num(), solver.n_clauses + solver.n_lemmas);
-		    if !solver.naive_decide() {
-			break;
-		    }
-		}
-			
-	    }
-	}
-    }
-
-    proptest! {
-	#[test]
 	fn test_watch_scheme_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
 	    loop {
+		assert!(solver.watch_in_first_two() && solver.watched_clause_not_lost());
 		if !solver.propagate() {
 		    if !solver.analyze_conflict() { break; }
 		} else {
+		    // assert!(solver.watch_in_first_two());
 		    assert!(solver.watch_scheme_invariant());
 		    if !solver.naive_decide() {
 			break;
