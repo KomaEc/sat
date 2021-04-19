@@ -176,7 +176,6 @@ impl Solver {
 	    .add_watch(Watch::new(clause_ref));
     }
 
-
     /// Allocate a new clause containing literals in [`lits`], set up two watched literals scheme
     fn add_clause(&mut self,
 		  lits: &[i32]) -> ClauseRef {
@@ -191,21 +190,6 @@ impl Solver {
 	self.add_watch(clause_ref, lits[0]);
 	self.add_watch(clause_ref, lits[1]);
 
-	clause_ref
-    }
-
-    /// add lemma that is located in buffer
-    fn add_lemma_in_buffer(&mut self) -> ClauseRef {
-	
-	if self.buffer.len() == 1 { return ClauseRef::null(); }
-
-	self.n_lemmas += 1;
-	
-	let clause_ref = self.allocator.allocate_clause(&self.buffer[..]);
-
-	self.add_watch(clause_ref, self.buffer[0]);
-	self.add_watch(clause_ref, self.buffer[1]);
-	
 	clause_ref
     }
 
@@ -519,8 +503,18 @@ impl Solver {
 
 	self.false_stack.truncate(self.processed); // undo false stack
 	self.level = snd_highest_level; // set backtrack level
-	let cref = self.add_lemma_in_buffer();
-	self.assign(-first_uip, cref);
+	if self.buffer.len() > 1 {
+	    let mut place_holder = Vec::new();
+	    std::mem::swap(&mut self.buffer, &mut place_holder);
+	    // take ownership
+	    self.n_lemmas += 1;
+	    let cref = self.add_clause(&place_holder[..]);
+	    self.assign(-first_uip, cref);
+	    std::mem::swap(&mut self.buffer, &mut place_holder);
+	    // write back buffer
+	} else { // unary clause found
+	    self.assign(-first_uip, ClauseRef::null());
+	}
 
 	#[cfg(debug_assertions)]
 	println!("backtracking to level {}", self.level.0);
@@ -561,8 +555,6 @@ mod tests {
 		    if !occurs.contains_key(watch) {
 			let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
 			occurs.insert(watch, clause);
-			// let clause = self.allocator.get_clause(watch.clause_ref());
-			// println!("{:?}: {:?}", watch.clause_ref(), clause.lits());
 		    }
 		}
 	    }
@@ -680,41 +672,6 @@ mod tests {
 		vec(clause(n_vars), n_clauses)
 		    .prop_map(move |clauses| (n_vars, n_clauses, clauses))
 	    })
-    }
-
-
-    proptest! {
-	#[test]
-	fn test_solver_initialize((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
-
-	    // watch clause should comes from the original sat instance
-	    for lit in -(n_vars as i32)..(n_vars as i32 + 1) {
-		if lit == 0 { continue; }
-		for watch in &solver.watches[cal_idx!(lit, n_vars)] {
-		    let clause = solver.allocator.get_clause(watch.clause_ref());
-		    assert!(lit == clause.lits()[0] || lit == clause.lits()[1]);
-		    assert!(clauses.contains(&clause.lits().to_vec()));
-		}
-	    }
-
-
-	    // simulate a false_stack
-	    solver.assign(1, ClauseRef::null());
-	    solver.level.incr();
-	    solver.propagate();
-
-	    let mut num = 0;
-
-	    for lit in -(n_vars as i32)..(n_vars as i32 + 1) {
-		if lit == 0 { continue; }
-		num += solver.watches[cal_idx!(lit, n_vars)].len();
-	    }
-
-
-	    assert_eq!(clauses.len() * 2, num);
-	    
-	}
     }
 
     #[test]
@@ -850,10 +807,6 @@ mod tests {
     }
 
     proptest! {
-	#![proptest_config(ProptestConfig{
-	    max_shrink_iters : 0,
-	    ..ProptestConfig::default()
-	})]
 	#[test]
 	fn test_solver_soundness((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
