@@ -113,7 +113,6 @@ pub struct Solver {
 ///    | ~xj Decided | @ level l
 ///    |     ...     |
 ///    Gound level assertions are represented as implied literals with reason clauses set to be [`null`]
-/// 4. 
 
 
 /// Learnt clauses are implied by the original set of clauses. Starting from one original clause (the conflict clause),
@@ -210,7 +209,11 @@ impl Solver {
 	    };
 
 	for lits in clauses {
-	    solver.add_clause(&lits);
+	    if lits.len() == 1 {
+		solver.assign(-lits[0], ClauseRef::null());
+	    } else {
+		solver.add_clause(&lits);
+	    }
 	}
 
 	solver
@@ -230,7 +233,8 @@ impl Solver {
 		  lits: &[i32]) -> ClauseRef {
 	let clause_ref = self.allocator.allocate_clause(lits);
 
-	assert!(lits.len() >= 2);
+	
+	debug_assert!(lits.len() >= 2);
 	// this is because, we do not add unary clauses to the database.
 	// unary clauses, be it learned or original, are encoded as
 	// ground level assertions.
@@ -262,30 +266,12 @@ impl Solver {
 	self.assignment[lit_idx] = Assignment::Assigned(self.level);
 	self.reason[lit_idx] = reason;
 
-	// FIXME: remove
+	#[cfg(debug_assertions)]
 	if reason.is_null() {
 	    println!("literal {} is assigned to be false at level {}", lit, self.level.0);
 	} else {
 	    println!("literal {} is implied to be false at level {}", lit, self.level.0);
 	}
-	
-	/*
-	match reason {
-	    Some(cref) => {
-
-		// FIXME: remove
-		// println!("literal {} is implied", lit);
-
-		
-		self.assignment[lit_idx] = Assignment::Implied(cref);
-		self.reason[lit_idx] = cref;
-		// FIXME: lit or neg_lit??
-	    },
-	    None => {
-		self.assignment[lit_idx] = Assignment::Decided;
-	    }
-	}
-	 */
 	
     }
 
@@ -322,6 +308,7 @@ impl Solver {
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
 	// FIXME: remove
+	#[cfg(debug_assertions)]
 	if self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Unassigned {
 	    panic!("should not call force_clause_status with unassigned literal");
 	}
@@ -413,6 +400,7 @@ impl Solver {
 		let clause_ref = watch_list[i].clause_ref();
 
 		// FIXME: remove
+		#[cfg(debug_assertions)]
 		println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
 
 		match self.force_clause_status(cur_lit, clause_ref) {
@@ -445,7 +433,7 @@ impl Solver {
 	    }
 
 	    // FIXME: remove
-	    // assert!(self.watches[cur_lit_idx].is_empty());
+	    debug_assert!(self.watches[cur_lit_idx].is_empty());
 
 	    watch_list.truncate(j);
 	    std::mem::swap(&mut self.watches[cur_lit_idx], &mut watch_list);
@@ -461,8 +449,8 @@ impl Solver {
 
     fn analyze_conflict(&mut self) -> bool {
 
-	// FIXME: remove
-	// println!("conflict found: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
+	#[cfg(debug_assertions)]
+	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
 
 	if self.level == Level::ground_level() { return false; }
 	// root level conflict found, UNSAT
@@ -473,10 +461,7 @@ impl Solver {
 	for lit in &self.buffer { self.marked[cal_idx!(*lit, self.n_vars)] = true; }
 	// mark all literals in conflict clause
 
-	// FIXME: remove
-	// assert!(self.processed == self.false_stack.len()); !!! incorret, conflict branch!
-	assert!(self.false_stack.len() >= 1);
-
+	debug_assert!(self.false_stack.len() >= 1);
 
 	self.processed = self.false_stack.len()-1;
 	while !self.marked[cal_idx!(self.false_stack[self.processed], self.n_vars)] {
@@ -493,8 +478,7 @@ impl Solver {
 	}
 	// snd_marked is the last literal different from [`processed`] but is also marked
 
-	// FIXME: remove
-	assert!(snd_marked < self.processed); // snd_marked must be properly initialized
+	debug_assert!(snd_marked < self.processed); // snd_marked must be properly initialized
 
 
 	// in the following, maintain the variant:
@@ -505,12 +489,11 @@ impl Solver {
 	loop {
 	    let lit = self.false_stack[self.processed]; let lit_idx = cal_idx!(lit, self.n_vars);
 
-	    // FIXME: remove
-	    // println!("resolving {}", lit);
-	    // println!("reason: {:?}", self.reason[lit_idx]);
-
-	    // FIXME: remove
-	    assert!(self.marked[lit_idx]);
+	    #[cfg(debug_assertions)]
+	    println!("resolving {}", lit);
+	    #[cfg(debug_assertions)]
+	    println!("reason: {:?}", self.reason[lit_idx]);
+	    debug_assert!(self.marked[lit_idx]);
 	    
 	    
 	    let reason_cls = self.allocator.get_clause(self.reason[lit_idx]);
@@ -527,12 +510,15 @@ impl Solver {
 	    }
 	    // first, resolve conflict clause with the reason clause of [`processed`]
 
-	    // FIXME: remove
-	    // println!("resolvent: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
-	    assert!(!self.buffer.contains(&lit)); assert!(!self.buffer.contains(&(-lit)));
+	    #[cfg(debug_assertions)]
+	    println!("resolvent: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
+	    debug_assert!(!self.buffer.contains(&lit)); debug_assert!(!self.buffer.contains(&(-lit)));
 
 
-	    while self.processed > snd_marked { self.unassign(self.false_stack[self.processed]); self.processed -= 1; }
+	    while self.processed > snd_marked {
+		self.unassign(self.false_stack[self.processed]);
+		self.processed -= 1;
+	    }
 	    // set [`processed`] to be [`snd_marked`]
 
 	    {
@@ -541,7 +527,9 @@ impl Solver {
 		    if self.reason[cal_idx!(self.false_stack[i], self.n_vars)].is_null() { break; }
 		    // decision reached, no further marked, UIP found
 		    i -= 1;
-		    if self.marked[cal_idx!(self.false_stack[i], self.n_vars)] { snd_marked = i; break; }
+		    if self.marked[cal_idx!(self.false_stack[i], self.n_vars)] {
+			snd_marked = i; break;
+		    }
 		}
 	    }
 	    // find snd_marked
@@ -550,7 +538,6 @@ impl Solver {
 	    // first UIP found
 
 	    for lit2 in &self.buffer[old_len..] {
-		println!("marking {}", *lit2);
 		self.marked[cal_idx!(*lit2, self.n_vars)] = true;
 	    }
 	    // else mark all literals in the previous reason clause
@@ -559,22 +546,21 @@ impl Solver {
 
 	let first_uip = self.false_stack[self.processed];
 
-	// FIXME: remove
-	// println!("uip found: {}", first_uip);
-	// println!("clause learned: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
-
-	// FIXME: remove
-	assert!(self.buffer.contains(&self.false_stack[self.processed])); // conflict clause contains the negation of the first UIP
+	#[cfg(debug_assertions)]
+	println!("uip found: {}", first_uip);
+	#[cfg(debug_assertions)]
+	println!("clause learned: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
+	debug_assert!(self.buffer.contains(&self.false_stack[self.processed])); // conflict clause contains the negation of the first UIP
 	// since this solver is false-based, it contains the UIP
 
-	let mut snd_highest_level = Level::ground_level();
-
-	for lit in &self.buffer {
-	    let level = self.assignment[cal_idx!(*lit, self.n_vars)].level();
-	    if level < self.level {
-		snd_highest_level = std::cmp::max(snd_highest_level, level);
-	    }
-	}
+	let mut snd_highest_level = self.buffer
+	    .iter()
+	    .fold(Level::ground_level(),
+		  |acc, lit| {
+		      let level = self.assignment[cal_idx!(*lit, self.n_vars)].level();
+		      if level < self.level { std::cmp::max(acc, level) }
+		      else                  { acc }
+		  });
 
 	loop {
 	    let lit = self.false_stack[self.processed];
@@ -587,16 +573,13 @@ impl Solver {
 	// after this loop, [`processed`] is set to be the correct decision length
 	
 
-	self.false_stack.truncate(self.processed);
-	// undo false stack
-
-	self.level = snd_highest_level;
-
+	self.false_stack.truncate(self.processed); // undo false stack
+	self.level = snd_highest_level; // set backtrack level
 	let cref = self.add_lemma_in_buffer();
-	self.assign(-first_uip, cref); // FIXME: first_uip or negation?
+	self.assign(-first_uip, cref);
 
-
-	// println!("backtracking to level {}", self.level.0);
+	#[cfg(debug_assertions)]
+	println!("backtracking to level {}", self.level.0);
 
 	true
     }
@@ -831,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unsat() {
+    fn test_unsat1() {
 	let mut solver
 	    = Solver::from_sat_instance(
 		4, 18, vec![vec![1, 3, -4, 2],
@@ -853,8 +836,41 @@ mod tests {
 			    vec![-2, 3],
 			    vec![-3, 1, 2]], true);
 
+	solver.print_all_clauses();
+	assert!(!solver.solve());
+    }
+
+    #[test]
+    fn test_unsat2() {
+	let mut solver
+	    = Solver::from_sat_instance(
+		2, 3, vec![vec![1, -2],
+			   vec![-1],
+			   vec![2]], true);
+
 	// solver.print_all_clauses();
 	assert!(!solver.solve());
+    }
+
+    #[test]
+    fn test_unsat3() {
+	let mut solver
+	    = Solver::from_sat_instance(
+		8, 12, vec![vec![6, 2],
+			    vec![-6, 2],
+			    vec![-2, 1],
+			    vec![-1],
+			    vec![-6, 8],
+			    vec![6, -8],
+			    vec![2, 4],
+			    vec![-4, 5],
+			    vec![7, 5],
+			    vec![-7, 5],
+			    vec![-5, 3],
+			    vec![-3]], true);
+
+	// solver.print_all_clauses();
+	assert!(!solver.solve());	
     }
 
 
