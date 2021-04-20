@@ -1,7 +1,7 @@
 # A Simple CDCL SAT Solver
 
 ## Design Principles of simplesat
-Simplesat is a _conflict driven clause learning_ SAT solver written in Rust. It will feature several optimization strategies employed by most modern CDCL SAT solvers.
+Simplesat is a __conflict driven clause learning__ SAT solver written in Rust. It will feature several optimization strategies employed by most modern CDCL SAT solvers.
 - [x] Two watched literals scheme
 - [x] No intermediate allocation
 - [ ] Variable state independent decaying sum (VSIDS)
@@ -32,7 +32,15 @@ At first glance, it seems that learned clauses may help. Indeed, a learned claus
 In fact, the solver terminates even if we do not keep learned clauses at all! The reason lies in the immediate implication of the learned asserting clause. Suppose the solver is currently at decision level `dl`, and will return back to `dl` again. Assume `dl'` is the lowest level the solver should reach in this period. Of course, `dl' <= dl`. Since `dl'` is the lowest, the solver can only backjump to this level. Each time the solver reaches `dl'`, a literal is immediately asserted by the learned clause at level `dl'`. So even if learned clauses are discarded right away, when the solver returns back to `dl`, it is with a different partial assignment.
 
 ### Interprocedural Borrow Conflicts
-Please refer to this [article](http://smallcultfollowing.com/babysteps/blog/2018/11/01/after-nll-interprocedural-conflicts/) for the concept of _interprocedural borrow conflicts_ in Rust. I was not quite haunted by it, but it indeed happened.
+Please refer to this [article](http://smallcultfollowing.com/babysteps/blog/2018/11/01/after-nll-interprocedural-conflicts/) for the concept of __interprocedural borrow conflicts__ in Rust. I was not quite haunted by it, but it indeed happened.
 
 
 ### Watch Clause Removal
+
+## Reference
+I find these books, slides and codes very useful.
+* Decision Procedure, 2nd Edition
+* [SAT Solving and CDCL(T)](https://sat-smt-ws.gitlab.io/2019/assets/slides/matesatsmt.pdf)
+* [SAT@Mandi 2019, Lecture 4: CDCL - optimizations](https://www.cse.iitb.ac.in/~akg/courses/2019-sat-mandi/lec-04-cdcl-opt.pdf)
+* [microsat](https://github.com/marijnheule/microsat)
+* [varisat](https://github.com/jix/varisat)
