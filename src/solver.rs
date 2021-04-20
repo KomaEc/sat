@@ -15,28 +15,15 @@ struct Level(u32);
 impl Level {
     const GROUND: Self = Level(0);
     const ABSURD: Self = Level(u32::MAX);
+
+    fn not_assigned(self) -> bool {
+	self.0 ^ u32::MAX == 0
+    }
 }
 
 impl std::ops::AddAssign<u32> for Level {
     fn add_assign(&mut self, other: u32) {
 	self.0 += other;
-    }
-}
-
-
-// #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Assignment {
-    Assigned(Level),
-    Unassigned,
-}
-
-impl Assignment {
-    fn level(&self) -> Level {
-	match self {
-	    Assignment::Assigned(l) => { *l },
-	    Assignment::Unassigned => { Level(u32::MAX) },
-	}
     }
 }
 
@@ -62,7 +49,7 @@ pub struct Solver {
     
     false_stack : Vec<Lit>, /// false_stack stack, holds literals that is assigned to be false
     /// length = n_vars
-    assignment : Box<[Assignment]>, /// assignment info
+    assignment : Box<[Level]>, /// assignment info
     /// length = 2 * n_vars
     watches : Box<[WatchList]>, /// clauses watched by a literal
     /// length = 2 * n_vars
@@ -139,7 +126,7 @@ impl Solver {
 		max_lemmas : 2000,
 		reason : vec![ClauseRef::null(); 2*n_vars].into_boxed_slice(),
 		false_stack : Vec::with_capacity(n_vars),
-		assignment : vec![Assignment::Unassigned; 2*n_vars].into_boxed_slice(),
+		assignment : vec![Level::ABSURD; 2*n_vars].into_boxed_slice(),
 		watches : vec![WatchList::new(); 2*n_vars].into_boxed_slice(),
 		marked : vec![false; 2*n_vars].into_boxed_slice(),
 		processed : 0,
@@ -193,7 +180,7 @@ impl Solver {
     fn assign(&mut self, lit: Lit, reason: ClauseRef) {
 	self.false_stack.push(lit);
 
-	self.assignment[lit.idx()] = Assignment::Assigned(self.level);
+	self.assignment[lit.idx()] = self.level;
 	self.reason[lit.idx()] = reason;
 
 	#[cfg(debug_assertions)]
@@ -206,7 +193,7 @@ impl Solver {
     }
 
     fn unassign(&mut self, lit: Lit) {
-	self.assignment[lit.idx()] = Assignment::Unassigned;
+	self.assignment[lit.idx()] = Level::ABSURD;
     }
 
     fn naive_decide(&mut self) -> bool {
@@ -214,8 +201,8 @@ impl Solver {
 	// increment decision level
 	
 	for var in 1..(self.n_vars as i32 + 1) {
-	    if self.assignment[Lit::from_dimacs(var).idx()] == Assignment::Unassigned
-		&& self.assignment[Lit::from_dimacs(-var).idx()] == Assignment::Unassigned {
+	    if self.assignment[Lit::from_dimacs(var).idx()].not_assigned()
+		&& self.assignment[Lit::from_dimacs(-var).idx()].not_assigned() {
 		    self.assign(Lit::from_dimacs(var), ClauseRef::null());
 		return true;
 	    }
@@ -237,7 +224,7 @@ impl Solver {
 
 	// FIXME: remove
 	#[cfg(debug_assertions)]
-	if self.assignment[wlit.idx()] == Assignment::Unassigned {
+	if self.assignment[wlit.idx()].not_assigned() {
 	    panic!("should not call force_clause_status with unassigned literal");
 	}
 	
@@ -257,7 +244,7 @@ impl Solver {
 	let mut unassigned_idx: Option<usize> = None;
 
 	for (i, lit) in rest.iter().enumerate() {
-	    if let Assignment::Unassigned = self.assignment[lit.idx()] {
+	    if self.assignment[lit.idx()].not_assigned() {
 		// [`lit`] is non-false
 		unassigned_idx = Some(i); break;
 	    }
@@ -283,8 +270,8 @@ impl Solver {
 		// the clause is either unit or conflict
 		let wlit2 = first_two[0];
 
-		if let Assignment::Unassigned = self.assignment[(-wlit2).idx()] {
-		    if let Assignment::Unassigned = self.assignment[wlit2.idx()] {
+		if self.assignment[(-wlit2).idx()].not_assigned() {
+		    if self.assignment[wlit2.idx()].not_assigned() {
 			// unit clause found, implying [`-wlit2`] to be false
 			ClauseStatus::Unit(-wlit2)
 		    } else {
@@ -454,7 +441,7 @@ impl Solver {
 	    self.processed += 1;
 	    while self.processed > 0 {
 		let lit = self.false_stack[self.processed-1];
-		if self.assignment[lit.idx()].level() == Level::GROUND { break; } // ground level assertions are ruled out
+		if self.assignment[lit.idx()] == Level::GROUND { break; } // ground level assertions are ruled out
 		if self.marked[lit.idx()] { self.buffer.push(lit); }
 		self.processed -= 1;
 	    }
@@ -473,7 +460,7 @@ impl Solver {
 	    .iter()
 	    .fold(Level::GROUND,
 		  |acc, lit| {
-		      let level = self.assignment[(*lit).idx()].level();
+		      let level = self.assignment[(*lit).idx()];
 		      if level < self.level { std::cmp::max(acc, level) }
 		      else                  { acc }
 		  });
@@ -482,7 +469,7 @@ impl Solver {
 	self.processed += 1;
 	while self.processed > 0 {
 	    let lit = self.false_stack[self.processed-1];
-	    let level = self.assignment[lit.idx()].level();
+	    let level = self.assignment[lit.idx()];
 	    if level == snd_highest_level { break; }
 	    self.unassign(lit);
 	    self.processed -= 1;
@@ -532,6 +519,16 @@ mod tests {
 
     use proptest::prelude::*;
     use proptest::collection::{hash_set, vec};
+
+
+
+    proptest! {
+	#[test]
+	fn test_level(l in (0..u32::MAX)) {
+	    assert!(!Level(l).not_assigned());
+	    assert!(Level::ABSURD.not_assigned());
+	}
+    }
 
 
     /// utility functions and properties to be tested
@@ -584,7 +581,7 @@ mod tests {
 		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
 		    let mut satisfied = false;
 		    for lit2 in lits {
-			if let Assignment::Assigned(_) = self.assignment[(-*lit2).idx()] {
+			if !self.assignment[(-*lit2).idx()].not_assigned() {
 			    satisfied = true;
 			}
 		    }
@@ -624,14 +621,14 @@ mod tests {
 		if lit == 0 { continue; }
 		let lit = Lit::from_dimacs(lit);
 		for watch in &self.watches[lit.idx()] {
-		    if !(self.assignment[lit.idx()] == Assignment::Unassigned) {
+		    if !(self.assignment[lit.idx()].not_assigned()) {
 			// if [`lit`] is falsified, then another watch must be satisfied
 			let lits = self.allocator.get_clause(watch.clause_ref()).lits();
 			let lit2 = {
 			    if lit == lits[0] { lits[1] }
 			    else              { lits[0] }
 			};
-			if let Assignment::Unassigned = self.assignment[(-lit2).idx()] {
+			if self.assignment[(-lit2).idx()].not_assigned() {
 			    return false;
 			}
 		    }

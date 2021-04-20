@@ -14,7 +14,7 @@ It is documented and _property-based tested_. The properties that are tested:
 
 
 ## TODO
-- [ ] Refactor `Assignment` struct
+- [ ] Remove WatchList construct?
 
 
 ## Discussion
