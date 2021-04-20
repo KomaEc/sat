@@ -57,12 +57,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "io-error"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89386213dc0a1f054d5fbf0e99bbcdd0ea7c867e82749b9955ab45a2dc65a83"
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -210,7 +204,6 @@ dependencies = [
 name = "simplesat"
 version = "0.1.0"
 dependencies = [
- "io-error",
  "proptest",
 ]
 

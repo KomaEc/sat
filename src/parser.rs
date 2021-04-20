@@ -5,7 +5,7 @@ use std::io::{Read, BufReader};
 use std::vec::Vec;
 
 
-fn dimacs_parser<R>(br: BufReader<R>)
+pub fn dimacs_parser<R>(br: BufReader<R>)
 	    -> io::Result<(usize, usize, Vec<Vec<i32>>)>
 where R : Read {
 
@@ -56,7 +56,7 @@ where R : Read {
 
 }
 
-fn dimacs_printer(n_vars: usize, n_clauses: usize, clauses: &Vec<Vec<i32>>)
+pub fn dimacs_printer(n_vars: usize, n_clauses: usize, clauses: &Vec<Vec<i32>>)
 		  -> String {
     let mut res = String::new();
 

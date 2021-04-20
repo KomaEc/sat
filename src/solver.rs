@@ -7,6 +7,8 @@ use crate::{
 };
 use std::vec::Vec;
 
+
+
 /// Decision level. Assignment to a literal is also represented by its level. A literal is not assigned if and if only its level
 /// is [`u32::MAX`]. This is reasonable, because we can treat implications with lower levels as more reliable. Ground level implications
 /// are just assertions.
@@ -116,9 +118,8 @@ pub struct Solver {
 
 impl Solver {
 	
-    fn from_dimacs(n_vars: usize,
-			 n_clauses: usize,
-			 clauses: Vec<Vec<i32>>) -> Self {
+    pub fn from_dimacs(dimacs: (usize, usize, Vec<Vec<i32>>)) -> Self {
+	let (n_vars, n_clauses, clauses) = dimacs;
 	let mut solver =
 	    Solver {
 		n_vars : n_vars,
@@ -184,11 +185,12 @@ impl Solver {
 	self.assignment[lit.idx()] = self.level;
 	self.reason[lit.idx()] = reason;
 
-	#[cfg(debug_assertions)]
-	if reason.is_null() {
-	    println!("literal {} is assigned to be false at level {}", lit, self.level.0);
-	} else {
-	    println!("literal {} is implied to be false at level {}", lit, self.level.0);
+	#[cfg(debug_assertions)] {
+	    if reason.is_null() {
+		println!("literal {} is assigned to be false at level {}", lit, self.level.0);
+	    } else {
+		println!("literal {} is implied to be false at level {}", lit, self.level.0);
+	    }
 	}
 	
     }
@@ -208,9 +210,7 @@ impl Solver {
 			   wlit: Lit,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
-	// FIXME: remove
-	#[cfg(debug_assertions)]
-	if self.assignment[wlit.idx()].not_assigned() {
+	if cfg!(debug_assertions) && self.assignment[wlit.idx()].not_assigned() {
 	    panic!("should not call force_clause_status with unassigned literal");
 	}
 	
@@ -295,9 +295,9 @@ impl Solver {
 
 		let clause_ref = watch_list[i].clause_ref();
 
-		// FIXME: remove
-		#[cfg(debug_assertions)]
-		println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
+		#[cfg(debug_assertions)] {
+		    println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
+		}
 
 		match self.force_clause_status(cur_lit, clause_ref) {
 		    ClauseStatus::Unit(implied_lit) => {
@@ -344,8 +344,9 @@ impl Solver {
 
     fn analyze_conflict(&mut self) -> bool {
 
-	#[cfg(debug_assertions)]
-	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
+	#[cfg(debug_assertions)] {
+	    println!("conflict found: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
+	}
 
 	if self.level == Level::GROUND { return false; } // root level conflict found, UNSAT
 
@@ -384,11 +385,12 @@ impl Solver {
 	loop {
 	    let lit = self.false_stack[self.processed];
 
-	    #[cfg(debug_assertions)]
-	    println!("resolving {}", lit);
-	    #[cfg(debug_assertions)]
-	    println!("reason: {:?}", self.reason[lit.idx()]);
-	    debug_assert!(self.marked[lit.idx()]);
+
+	    #[cfg(debug_assertions)] {
+		println!("resolving {}", lit);
+		println!("reason: {:?}", self.reason[lit.idx()]);
+		debug_assert!(self.marked[lit.idx()]);
+	    }
 	    
 	    
 	    let reason_cls = self.allocator.get_clause(self.reason[lit.idx()]);
@@ -434,12 +436,12 @@ impl Solver {
 	}
 	// build conflict clause
 
-	#[cfg(debug_assertions)]
-	println!("uip found: {}", first_uip);
-	#[cfg(debug_assertions)]
-	println!("clause learned: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
-	debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
-	// since this solver is false-based, it contains the UIP
+	#[cfg(debug_assertions)] {
+	    println!("uip found: {}", first_uip);
+	    println!("clause learned: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
+	    debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
+	    // since this solver is false-based, it contains the UIP
+	}
 
 	let snd_highest_level = self.buffer
 	    .iter()
@@ -477,8 +479,9 @@ impl Solver {
 	    self.assign(-first_uip, ClauseRef::null());
 	}
 
-	#[cfg(debug_assertions)]
-	println!("backtracking to level {}", self.level.0);
+	#[cfg(debug_assertions)] {
+	    println!("backtracking to level {}", self.level.0);
+	}
 
 	true
     }
@@ -669,7 +672,7 @@ mod tests {
     fn test_propagate() {
 	let mut solver
 	    = Solver::from_dimacs(
-		3, 9,
+		(3, 9,
 		vec![vec![-3, -1, 2],
 		     vec![3, 2],
 		     vec![-1, -3],
@@ -678,7 +681,7 @@ mod tests {
 		     vec![-2, 1, 3],
 		     vec![1, -3],
 		     vec![-2, -1, -3],
-		     vec![1, 2, 3]]);
+		     vec![1, 2, 3]]));
 
 	solver.print_all_clauses();
 	// solver.print_watch();
@@ -701,7 +704,7 @@ mod tests {
     #[test]
     fn test_solver_multiple_backtrack_nontrivial_uip() {
 	let mut solver
-	    = Solver::from_dimacs(
+	    = Solver::from_dimacs((
 		5, 12, vec![vec![-5, 2, 1, -4, -3],
 			    vec![-1, 2],
 			    vec![4, 5, 1, 3, 2],
@@ -713,7 +716,7 @@ mod tests {
 			    vec![3, -5],
 			    vec![-4, -2, 1, -3],
 			    vec![-1, 5, 4],
-			    vec![-3, -5]]);
+			    vec![-3, -5]]));
 	// solver.print_all_clauses();
 	if solver.solve() {
 	    println!("SAT");
@@ -725,10 +728,10 @@ mod tests {
     #[test]
     fn test_unsat1() {
 	let mut solver
-	    = Solver::from_dimacs(
+	    = Solver::from_dimacs((
 		2, 3, vec![vec![1, -2],
 			   vec![-1],
-			   vec![2]]);
+			   vec![2]]));
 
 	// solver.print_all_clauses();
 	assert!(!solver.solve());
@@ -737,7 +740,7 @@ mod tests {
     #[test]
     fn test_unsat2() {
 	let mut solver
-	    = Solver::from_dimacs(
+	    = Solver::from_dimacs((
 		8, 12, vec![vec![6, 2],
 			    vec![-6, 2],
 			    vec![-2, 1],
@@ -749,7 +752,7 @@ mod tests {
 			    vec![7, 5],
 			    vec![-7, 5],
 			    vec![-5, 3],
-			    vec![-3]]);
+			    vec![-3]]));
 
 	// solver.print_all_clauses();
 	assert!(!solver.solve());	
@@ -758,8 +761,8 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_solver_terminate((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
+	fn test_solver_terminate(dimacs in sat_instance()) {
+	    let mut solver = Solver::from_dimacs(dimacs);
 	    // solver.print_all_clauses();
 	    if solver.solve() {
 		println!("SAT");
@@ -772,8 +775,8 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_solver_soundness((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
+	fn test_solver_soundness(dimacs in sat_instance()) {
+	    let mut solver = Solver::from_dimacs(dimacs);
 	    if solver.solve() {
 		assert!(solver.verify());
 	    }
@@ -783,8 +786,8 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_processed_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
+	fn test_processed_invariant(dimacs in sat_instance()) {
+	    let mut solver = Solver::from_dimacs(dimacs);
 	    loop {
 		if !solver.propagate() {
 		    if !solver.analyze_conflict() { break; }
@@ -801,8 +804,8 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_watch_scheme_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
+	fn test_watch_scheme_invariant(dimacs in sat_instance()) {
+	    let mut solver = Solver::from_dimacs(dimacs);
 	    loop {
 		assert!(solver.watch_in_first_two() && solver.watched_clause_not_lost());
 		if !solver.propagate() {
