@@ -21,8 +21,8 @@ where R : Read {
 
     // parse comment
 
-    let mut n_vars = 0;
-    let mut n_clauses = 0;
+    let n_vars;      
+    let n_clauses;
     let mut clauses: Vec<Vec<i32>>  = Vec::new();
 
 
@@ -35,27 +35,30 @@ where R : Read {
 	}
     );
 
-    {
-	let line = lines.next();
 
-	if let Ok(ref line) = line.expect("expect problem definition") {
-	    // assert!(line.starts_with('p'));
-	    let problem: Vec<&str> = line.split(' ').collect();
-	    assert_eq!(problem.len(), 4, "expect problem definition");
-	    assert_eq!(problem[0], "p", "expect problem definition");
-	    assert_eq!(problem[1], "cnf", "expect cnf");
-	    n_vars = problem[2].parse::<usize>().expect("expect number of variables");
-	    n_clauses = problem[3].parse::<usize>().expect("expect number of clauses");
-	}
+    let mut line: String = lines.next().expect("expect problem definition").expect("expect problem definition");
+    // assert!(line.starts_with('p'));
+    let problem: Vec<&str> = line.split_whitespace().collect();
+    if problem.len() != 4 || problem[0] != "p" || problem[1] != "cnf" {
+	panic!("expect problem definition");
     }
+    n_vars = problem[2].parse::<usize>().expect("expect number of variables");
+    n_clauses = problem[3].parse::<usize>().expect("expect number of clauses");
 
-    for line in lines {
-	if let Ok(ref line) = line {
-	    let clause: Vec<i32> = line.split(' ')
-		.map(|x| x.parse::<i32>().expect("literal"))
-		.collect();
-	    clauses.push(clause);
+
+    for _ in 0..n_clauses {
+	let mut dimacs_clause = Vec::new();
+	loop {
+	    line = lines.next().expect(&format!("expect {} clauses", n_clauses)).expect(&format!("expect {} clauses", n_clauses));
+	    let nums: Vec<&str> = line.split_whitespace().collect();
+	    let (last, previous) = &nums[..].split_last().expect("clause");
+	    dimacs_clause.extend_from_slice(
+		&previous.iter().map(|s| s.parse::<i32>().expect("literal")).collect::<Vec<_>>()[..]
+	    );
+	    let last_num = last.parse::<i32>().expect("number");
+	    if last_num == 0 { break; }
 	}
+	clauses.push(dimacs_clause);
     }
 
     Ok((n_vars, n_clauses, clauses))
@@ -75,7 +78,7 @@ fn dimacs_printer(n_vars: usize, n_clauses: usize, clauses: &Vec<Vec<i32>>)
 	    .collect::<Vec<String>>()
 	    .join(" ");
 	res.push_str(&cl_str);
-	res.push_str("\n");
+	res.push_str(" 0\n");
     }
 
     res
@@ -92,7 +95,7 @@ mod tests {
     fn test_parse_specialized() -> std::result::Result<(), std::io::Error> {
 
 	let problem
-	    = "c this is a SAT instance from the book\nc Decision Procedure\np cnf 6 8\n-1 2\n-1 3 5\n-2 4\n-3 -4\n1 5 -2\n2 3\n2 -3\n6 -5";
+	    = "c this is a SAT instance from the book\nc Decision Procedure\np cnf 6 8\n-1 2 0\n-1 3 5 0\n-2 4 0\n-3 -4 0\n1 5 -2 0\n2 3 0\n2 -3 0\n6 -5 0";
 
 	let clauses_ground_truth
 	    = vec![
@@ -135,24 +138,6 @@ mod tests {
 	    }
     }
 
-
-    /*
-    prop_compose! {
-z3
-	fn clause(n_vars: usize)
-	    (length in 2usize..n_vars+1)
-	    (signs in vec(any::<bool>(), length),
-	     vars in hash_set(1..n_vars as i32 +1, length))
-	     -> Vec<i32> {
-		let mut vars: Vec<_> = vars.into_iter().collect();
-		for (i, var) in vars.iter_mut().enumerate() {
-		    if !signs[i] { *var = -*var; }
-		}
-		vars
-	    }
-    }
-     */
-
     fn sat_instance() -> impl Strategy<Value = (usize, usize, Vec<Vec<i32>>)> {
 	(3usize..16,
 	 5usize..40)
@@ -163,8 +148,9 @@ z3
     }
 
     proptest! {
+	/// print; parse = identity
 	#[test]
-	fn test_parse_round_trip((n_vars, n_clauses, clauses) in sat_instance()) {
+	fn test_parser_backward_round_tripping((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let str_repr = dimacs_printer(n_vars, n_clauses, &clauses);
 	    if let Ok(parse_result) = dimacs_parser(BufReader::new(str_repr.as_bytes())) {
 		assert_eq!((n_vars, n_clauses, clauses), parse_result);
