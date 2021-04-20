@@ -26,9 +26,9 @@ impl Lit {
 
     pub fn to_dimacs(self) -> i32 {
 	if (self.data & 1) != 0 {
-	    - ((self.data >> 1) as i32)
+	    - ((self.data >> 1) as i32 + 1)
 	} else {
-	    (self.data >> 1) as i32
+	    (self.data >> 1) as i32 + 1
 	}
     }
 
@@ -76,11 +76,36 @@ impl fmt::Display for Lit {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_from_dimacs() {
-	let lit1 = Lit::from_dimacs(3);
-	assert_eq!(4, lit1.data);
-	let lit2 = Lit::from_dimacs(-4);
-	assert_eq!(7, lit2.data);
+    use proptest::prelude::*;
+    
+    proptest! {
+	#[test]
+	fn test_from_dimacs_compose_to_dimacs_identity(
+	    num in (-100i32..101)
+		.prop_filter("dimacs literal is non-zero", |num| *num != 0)) {
+	    assert_eq!(num, Lit::from_dimacs(num).to_dimacs());
+	}
+    }
+    proptest! {
+	#[test]
+	fn test_to_dimacs_compose_from_dimacs_identity(idx in (0..200u32)) {
+	    let lit = Lit { data: idx };
+	    assert_eq!(lit, Lit::from_dimacs(lit.to_dimacs()));
+	}
+    }
+    proptest! {
+	#[test]
+	fn test_neg(
+	    num in (-100i32..101)
+		.prop_filter("dimacs literal is non-zero", |num| *num != 0)) {
+	    assert_eq!(-num, (-Lit::from_dimacs(num)).to_dimacs());
+	}
+    }
+    proptest! {
+	#[test]
+	fn test_neg_neg_identity(idx in (0..200u32)) {
+	    let lit = Lit { data: idx };
+	    assert_eq!(--lit, lit);
+	}
     }
 }

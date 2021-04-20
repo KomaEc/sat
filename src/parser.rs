@@ -39,7 +39,7 @@ where R : Read {
     );
 
     {
-	let mut line = lines.next();
+	let line = lines.next();
 
 	if let Ok(ref line) = line.expect("expect problem definition") {
 	    // assert!(line.starts_with('p'));

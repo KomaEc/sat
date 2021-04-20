@@ -4,7 +4,7 @@
 Simplesat is a _conflict driven clause learning_ SAT solver written in Rust. It will feature several optimization strategies employed by most modern CDCL SAT solvers.
 - [x] Two watched literals scheme
 - [x] No intermediate allocation
-- [ ] VISD
+- [ ] Variable state independent decaying sum (VSIDS)
 - [ ] Lemma deletion
 - [ ] Restart
 

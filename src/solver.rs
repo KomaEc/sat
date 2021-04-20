@@ -13,12 +13,13 @@ use std::vec::Vec;
 struct Level(u32);
 
 impl Level {
-    fn ground_level() -> Self {
-	Level(0)
-    }
+    const GROUND: Self = Level(0);
+    const ABSURD: Self = Level(u32::MAX);
+}
 
-    fn incr(&mut self) {
-	self.0 += 1;
+impl std::ops::AddAssign<u32> for Level {
+    fn add_assign(&mut self, other: u32) {
+	self.0 += other;
     }
 }
 
@@ -142,7 +143,7 @@ impl Solver {
 		watches : vec![WatchList::new(); 2*n_vars].into_boxed_slice(),
 		marked : vec![false; 2*n_vars].into_boxed_slice(),
 		processed : 0,
-		level : Level::ground_level(),
+		level : Level::GROUND,
 		buffer : vec![Lit::from(0); n_vars],
 		allocator : if small {
 		    Allocator::small()
@@ -209,7 +210,7 @@ impl Solver {
     }
 
     fn naive_decide(&mut self) -> bool {
-	self.level.incr();
+	self.level += 1;
 	// increment decision level
 	
 	for var in 1..(self.n_vars as i32 + 1) {
@@ -374,7 +375,7 @@ impl Solver {
 	#[cfg(debug_assertions)]
 	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
 
-	if self.level == Level::ground_level() { return false; } // root level conflict found, UNSAT
+	if self.level == Level::GROUND { return false; } // root level conflict found, UNSAT
 
 	unsafe { // memset [`mark`] array to all false
 	    std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars);
@@ -403,7 +404,7 @@ impl Solver {
 	debug_assert!(snd_marked < self.processed); // snd_marked must be properly initialized
 
 
-	// in the following, maintain the variant:
+	// in the following, maintain this invariant:
 	// all marked literals below and include [`processed`] form a separating cut to the conflict node
 	// snd_marked <= processed and equality holds if and only if there is no further marked literal, and hence processed
 	// is the first UIP
@@ -453,7 +454,7 @@ impl Solver {
 	    self.processed += 1;
 	    while self.processed > 0 {
 		let lit = self.false_stack[self.processed-1];
-		if self.assignment[lit.idx()].level() == Level::ground_level() { break; } // ground level assertions are ruled out
+		if self.assignment[lit.idx()].level() == Level::GROUND { break; } // ground level assertions are ruled out
 		if self.marked[lit.idx()] { self.buffer.push(lit); }
 		self.processed -= 1;
 	    }
@@ -470,7 +471,7 @@ impl Solver {
 
 	let snd_highest_level = self.buffer
 	    .iter()
-	    .fold(Level::ground_level(),
+	    .fold(Level::GROUND,
 		  |acc, lit| {
 		      let level = self.assignment[(*lit).idx()].level();
 		      if level < self.level { std::cmp::max(acc, level) }
@@ -542,7 +543,7 @@ mod tests {
 		let lit = Lit::from_dimacs(lit);
 		for watch in &self.watches[lit.idx()] {
 		    if !occurs.contains_key(watch) {
-			let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
+			let clause = self.allocator.get_clause(watch.clause_ref()).lits().iter().map(|lit| (*lit).to_dimacs()).collect::<Vec<_>>();
 			occurs.insert(watch, clause);
 		    }
 		}
@@ -688,7 +689,7 @@ mod tests {
 
 	// simlute a decision
 	// println!("assign literal 1 to be false");
-	solver.level.incr();
+	solver.level += 1;
 	solver.assign(Lit::from_dimacs(1), ClauseRef::null());
 	let propagation_result = solver.propagate();
 
