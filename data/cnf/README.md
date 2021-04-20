@@ -1,0 +1,1 @@
+Example DIMACS CNF file format from [here](https://people.sc.fsu.edu/~jburkardt/data/cnf/cnf.html)
