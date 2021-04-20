@@ -32,6 +32,7 @@ impl Allocator {
 	Allocator::default()
     }
 
+    #[cfg(debug_assertions)]
     pub fn small() -> Self {
 	let size = 1usize << 10;
 	Allocator {

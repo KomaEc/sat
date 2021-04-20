@@ -103,12 +103,12 @@ pub struct Solver {
 /// Learnt clauses are implied by the original set of clauses. Starting from one original clause (the conflict clause),
 /// a learnt clause is constructed by multip steps of resolusion of this clause with other clauses.
 
-/// Backtrack level: the second highest false_stack level in the learnt clause.
+/// Backtrack level: the second highest level in the learnt clause.
 
 /// Stop criteria: resolusion stops when current clause contains the negation of the first Unique Implication Point (UIP) as
 /// the [only] literal that is at current false_stack level. This criteria provides the [lowest] false_stack level. The reason
 /// is pretty simple: resolusion only eliminates literals at current assignment, so further resolusion will not affects
-/// other literals other than the first UIP, and will only introduce other literals with possibly higher false_stack level.
+/// other literals other than the first UIP, and will only introduce other literals with possibly higher levels.
 
 
 /// It might be a bit hard to understand why CDCL can find UNSAT. Here is my thought, imagine that after a long and winding
@@ -116,10 +116,9 @@ pub struct Solver {
 
 impl Solver {
 	
-    fn from_sat_instance(n_vars: usize,
+    fn from_dimacs(n_vars: usize,
 			 n_clauses: usize,
-			 clauses: Vec<Vec<i32>>,
-			 small: bool) -> Self {
+			 clauses: Vec<Vec<i32>>) -> Self {
 	let mut solver =
 	    Solver {
 		n_vars : n_vars,
@@ -134,7 +133,7 @@ impl Solver {
 		processed : 0,
 		level : Level::GROUND,
 		buffer : vec![Lit::from(0); n_vars],
-		allocator : if small {
+		allocator : if cfg!(debug_assertions) {
 		    Allocator::small()
 		} else {
 		    Allocator::new()
@@ -669,7 +668,7 @@ mod tests {
     #[test]
     fn test_propagate() {
 	let mut solver
-	    = Solver::from_sat_instance(
+	    = Solver::from_dimacs(
 		3, 9,
 		vec![vec![-3, -1, 2],
 		     vec![3, 2],
@@ -679,7 +678,7 @@ mod tests {
 		     vec![-2, 1, 3],
 		     vec![1, -3],
 		     vec![-2, -1, -3],
-		     vec![1, 2, 3]], true);
+		     vec![1, 2, 3]]);
 
 	solver.print_all_clauses();
 	// solver.print_watch();
@@ -702,7 +701,7 @@ mod tests {
     #[test]
     fn test_solver_multiple_backtrack_nontrivial_uip() {
 	let mut solver
-	    = Solver::from_sat_instance(
+	    = Solver::from_dimacs(
 		5, 12, vec![vec![-5, 2, 1, -4, -3],
 			    vec![-1, 2],
 			    vec![4, 5, 1, 3, 2],
@@ -714,7 +713,7 @@ mod tests {
 			    vec![3, -5],
 			    vec![-4, -2, 1, -3],
 			    vec![-1, 5, 4],
-			    vec![-3, -5]], true);
+			    vec![-3, -5]]);
 	// solver.print_all_clauses();
 	if solver.solve() {
 	    println!("SAT");
@@ -726,10 +725,10 @@ mod tests {
     #[test]
     fn test_unsat1() {
 	let mut solver
-	    = Solver::from_sat_instance(
+	    = Solver::from_dimacs(
 		2, 3, vec![vec![1, -2],
 			   vec![-1],
-			   vec![2]], true);
+			   vec![2]]);
 
 	// solver.print_all_clauses();
 	assert!(!solver.solve());
@@ -738,7 +737,7 @@ mod tests {
     #[test]
     fn test_unsat2() {
 	let mut solver
-	    = Solver::from_sat_instance(
+	    = Solver::from_dimacs(
 		8, 12, vec![vec![6, 2],
 			    vec![-6, 2],
 			    vec![-2, 1],
@@ -750,7 +749,7 @@ mod tests {
 			    vec![7, 5],
 			    vec![-7, 5],
 			    vec![-5, 3],
-			    vec![-3]], true);
+			    vec![-3]]);
 
 	// solver.print_all_clauses();
 	assert!(!solver.solve());	
@@ -760,7 +759,7 @@ mod tests {
     proptest! {
 	#[test]
 	fn test_solver_terminate((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
 	    // solver.print_all_clauses();
 	    if solver.solve() {
 		println!("SAT");
@@ -774,7 +773,7 @@ mod tests {
     proptest! {
 	#[test]
 	fn test_solver_soundness((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
 	    if solver.solve() {
 		assert!(solver.verify());
 	    }
@@ -785,7 +784,7 @@ mod tests {
     proptest! {
 	#[test]
 	fn test_processed_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
 	    loop {
 		if !solver.propagate() {
 		    if !solver.analyze_conflict() { break; }
@@ -803,7 +802,7 @@ mod tests {
     proptest! {
 	#[test]
 	fn test_watch_scheme_invariant((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
+	    let mut solver = Solver::from_dimacs(n_vars, n_clauses, clauses.clone());
 	    loop {
 		assert!(solver.watch_in_first_two() && solver.watched_clause_not_lost());
 		if !solver.propagate() {
