@@ -1,4 +1,5 @@
 
+
 mod clause;
 mod solver;
 mod parser;
@@ -14,6 +15,7 @@ use std::io::BufReader;
 use std::env;
 
 fn main() -> std::io::Result<()> {
+    
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
 	println!("expect one file");
