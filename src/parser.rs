@@ -28,13 +28,10 @@ where R : Read {
 
     let mut lines = br.lines().skip_while(
 	|line| {
-	    let mut skip_flag = true;
 	    if let Ok(ref line) = line {
-		// println!("{}", line);
-		// println!("does it starts with c? {}", line.starts_with('c'));
-		if !line.starts_with('c') { skip_flag = false; }
+		if !line.starts_with('c') { return false; }
 	    }
-	    skip_flag
+	    true
 	}
     );
 

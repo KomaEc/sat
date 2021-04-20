@@ -7,7 +7,9 @@ use crate::{
 };
 use std::vec::Vec;
 
-
+/// Decision level. Assignment to a literal is also represented by its level. A literal is not assigned if and if only its level
+/// is [`u32::MAX`]. This is reasonable, because we can treat implications with lower levels as more reliable. Ground level implications
+/// are just assertions.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 struct Level(u32);
@@ -53,7 +55,7 @@ pub struct Solver {
     /// length = 2 * n_vars
     watches : Box<[WatchList]>, /// clauses watched by a literal
     /// length = 2 * n_vars
-    marked : Box<[bool]>,
+    marked : Box<[bool]>, /// we can treat is as the resolvent during the analyzing process
     /// length = 2 * n_vars
 
     processed : usize,
@@ -196,21 +198,6 @@ impl Solver {
 	self.assignment[lit.idx()] = Level::ABSURD;
     }
 
-    fn naive_decide(&mut self) -> bool {
-	self.level += 1;
-	// increment decision level
-	
-	for var in 1..(self.n_vars as i32 + 1) {
-	    if self.assignment[Lit::from_dimacs(var).idx()].not_assigned()
-		&& self.assignment[Lit::from_dimacs(-var).idx()].not_assigned() {
-		    self.assign(Lit::from_dimacs(var), ClauseRef::null());
-		return true;
-	    }
-	}
-
-	return false;
-    }
-
 
     /// Force the variant of two watch literals scheme.
     /// Precondition: [`watch_lit`] is a watch literal of clause [`clause_ref`], and it is assigned to be false.
@@ -241,16 +228,16 @@ impl Solver {
 	// at this point, the another watch is unassigned w.r.t.
 	// current false_stack stack up tp [`wlit`]
 
-	let mut unassigned_idx: Option<usize> = None;
+	let mut non_false: Option<usize> = None;
 
 	for (i, lit) in rest.iter().enumerate() {
 	    if self.assignment[lit.idx()].not_assigned() {
 		// [`lit`] is non-false
-		unassigned_idx = Some(i); break;
+		non_false = Some(i); break;
 	    }
 	}
 
-	match unassigned_idx {
+	match non_false {
 	    Some(i) => {
 		let lit = rest[i];
 		first_two[1] = lit;
@@ -333,9 +320,8 @@ impl Solver {
 			i += 1;
 		    },
 		    ClauseStatus::Delayed => {
-			// in this case, [`cur_lit`] no longer watches
-			// [`clause_ref`], delete it
-			// replace watch positioned at [`i`] with that of [`j-1`]
+			// in this case, [`cur_lit`] no longer watches [`clause_ref`], delete it replace watch positioned
+			// at [`i`] with that of [`j-1`]
 			watch_list.swap(i, j-1);
 			j -= 1;
 		    }
@@ -498,6 +484,20 @@ impl Solver {
 	true
     }
 
+    fn naive_decide(&mut self) -> bool {
+	self.level += 1;
+	// increment decision level
+	
+	for var in 1..(self.n_vars as i32 + 1) {
+	    if self.assignment[Lit::from_dimacs(var).idx()].not_assigned()
+		&& self.assignment[Lit::from_dimacs(-var).idx()].not_assigned() {
+		    self.assign(Lit::from_dimacs(var), ClauseRef::null());
+		return true;
+	    }
+	}
+
+	return false;
+    }
 
     pub fn solve(&mut self) -> bool {
 
@@ -727,33 +727,6 @@ mod tests {
     fn test_unsat1() {
 	let mut solver
 	    = Solver::from_sat_instance(
-		4, 18, vec![vec![1, 3, -4, 2],
-			    vec![4, 3, 1, 2],
-			    vec![-4, -3, -2, 1],
-			    vec![-3, 2],
-			    vec![-4, 2, 3, -1],
-			    vec![-1, -4, 3],
-			    vec![3, -4, 1],
-			    vec![4, -1, 3],
-			    vec![-1, 2, 4, -3],
-			    vec![3, 1, 2, -4],
-			    vec![-1, -4, -3, -2],
-			    vec![-2, 4, 1],
-			    vec![4, -2],
-			    vec![-2, 1],
-			    vec![-4, 3],
-			    vec![3, 2, 4],
-			    vec![-2, 3],
-			    vec![-3, 1, 2]], true);
-
-	solver.print_all_clauses();
-	assert!(!solver.solve());
-    }
-
-    #[test]
-    fn test_unsat2() {
-	let mut solver
-	    = Solver::from_sat_instance(
 		2, 3, vec![vec![1, -2],
 			   vec![-1],
 			   vec![2]], true);
@@ -763,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unsat3() {
+    fn test_unsat2() {
 	let mut solver
 	    = Solver::from_sat_instance(
 		8, 12, vec![vec![6, 2],
@@ -846,21 +819,5 @@ mod tests {
 	}
     }
 
-
-    /*
-    proptest! {
-	#![proptest_config(ProptestConfig{
-	    max_shrink_iters : 0,
-	    ..ProptestConfig::default()
-	})]
-	#[test]
-	fn find_unsat((n_vars, n_clauses, clauses) in sat_instance()) {
-	    let mut solver = Solver::from_sat_instance(n_vars, n_clauses, clauses.clone(), true);
-	    solver.print_all_clauses();
-	    assert!(solver.solve());
-	    println!("");
-	}
-    }
-     */
     
 }
