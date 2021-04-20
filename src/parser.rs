@@ -1,18 +1,8 @@
 
-use std::fs::File;
 use std::io::prelude::*;
 use std::io;
 use std::io::{Read, BufReader};
-use std::vec::*;
-
-
-
-/// return n_vars, n_clauses, and all clause
-fn parse_from_file(filename: &str)
-		   -> io::Result<(usize, usize, Vec<Vec<i32>>)> {
-    let file = File::open(filename)?;
-    dimacs_parser(BufReader::new(file))
-}
+use std::vec::Vec;
 
 
 fn dimacs_parser<R>(br: BufReader<R>)
@@ -152,11 +142,8 @@ mod tests {
 	#[test]
 	fn test_parser_backward_round_tripping((n_vars, n_clauses, clauses) in sat_instance()) {
 	    let str_repr = dimacs_printer(n_vars, n_clauses, &clauses);
-	    if let Ok(parse_result) = dimacs_parser(BufReader::new(str_repr.as_bytes())) {
-		assert_eq!((n_vars, n_clauses, clauses), parse_result);
-	    } else {
-		panic!("io error");
-	    }
+	    let parse_result = dimacs_parser(BufReader::new(str_repr.as_bytes())).expect("io error");
+	    assert_eq!((n_vars, n_clauses, clauses), parse_result);
 	}
     }
 
