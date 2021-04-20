@@ -3,6 +3,7 @@ mod clause;
 mod solver;
 mod parser;
 mod watch;
+mod lit;
 
 /*
 use crate::{

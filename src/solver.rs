@@ -2,21 +2,15 @@
 
 use crate::{
     clause::alloc::{Allocator, ClauseRef},
-    watch::{Watch, WatchList}
+    watch::{Watch, WatchList},
+    lit::Lit,
 };
 use std::vec::Vec;
 
 
-/// Calculate the index of a literal into arrays like [`assignment`]
-macro_rules! cal_idx {
-    ($lit: expr, $n_vars: expr) => {
-	($lit + ($n_vars as i32)) as usize
-    }
-}
-
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-struct Level(u16);
+struct Level(u32);
 
 impl Level {
     fn ground_level() -> Self {
@@ -40,7 +34,7 @@ impl Assignment {
     fn level(&self) -> Level {
 	match self {
 	    Assignment::Assigned(l) => { *l },
-	    Assignment::Unassigned => { Level(u16::MAX) },
+	    Assignment::Unassigned => { Level(u32::MAX) },
 	}
     }
 }
@@ -48,7 +42,7 @@ impl Assignment {
 /// [`Delayed`] clause can be either unit or unresolved or satisfed
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum ClauseStatus {
-    Unit(i32),
+    Unit(Lit),
     Conflict,
     Delayed, /// lazy clause status. If we can be lazy, we can be lazier :)
     Satisfied,
@@ -62,17 +56,17 @@ pub struct Solver {
     max_lemmas : usize, /// maximum number of learned clauses
     
     reason : Box<[ClauseRef]>, /// the reason clause for an implication
-    /// length = 2 * n_vars + 1
+    /// length = 2 * n_vars
 
     
-    false_stack : Vec<i32>, /// false_stack stack, holds literals that is assigned to be false
+    false_stack : Vec<Lit>, /// false_stack stack, holds literals that is assigned to be false
     /// length = n_vars
     assignment : Box<[Assignment]>, /// assignment info
-    /// length = 2 * n_vars + 1
+    /// length = 2 * n_vars
     watches : Box<[WatchList]>, /// clauses watched by a literal
-    /// length = 2 * n_vars + 1
+    /// length = 2 * n_vars
     marked : Box<[bool]>,
-    /// length = 2 * n_vars + 1
+    /// length = 2 * n_vars
 
     processed : usize,
     /// a pointer into the false stack for processing literals
@@ -84,7 +78,7 @@ pub struct Solver {
     
 
 
-    buffer : Vec<i32>, // a buffer to contain conflict clauses
+    buffer : Vec<Lit>, // a buffer to contain conflict clauses
     /// capacity of total buffer = n_vars
     allocator : Allocator,
 }
@@ -142,14 +136,14 @@ impl Solver {
 		n_clauses : n_clauses,
 		n_lemmas : 0,
 		max_lemmas : 2000,
-		reason : vec![ClauseRef::null(); 2*n_vars+1].into_boxed_slice(),
+		reason : vec![ClauseRef::null(); 2*n_vars].into_boxed_slice(),
 		false_stack : Vec::with_capacity(n_vars),
-		assignment : vec![Assignment::Unassigned; 2*n_vars+1].into_boxed_slice(),
-		watches : vec![WatchList::new(); 2*n_vars+1].into_boxed_slice(),
-		marked : vec![false; 2*n_vars+1].into_boxed_slice(),
+		assignment : vec![Assignment::Unassigned; 2*n_vars].into_boxed_slice(),
+		watches : vec![WatchList::new(); 2*n_vars].into_boxed_slice(),
+		marked : vec![false; 2*n_vars].into_boxed_slice(),
 		processed : 0,
 		level : Level::ground_level(),
-		buffer : vec![0i32; n_vars],
+		buffer : vec![Lit::from(0); n_vars],
 		allocator : if small {
 		    Allocator::small()
 		} else {
@@ -159,9 +153,10 @@ impl Solver {
 
 	for lits in clauses {
 	    if lits.len() == 1 {
-		solver.assign(-lits[0], ClauseRef::null());
+		solver.n_clauses -= 1;
+		solver.assign(-Lit::from_dimacs(lits[0]), ClauseRef::null());
 	    } else {
-		solver.add_clause(&lits);
+		solver.add_clause(&lits.into_iter().map(|num| Lit::from_dimacs(num)).collect::<Vec<_>>()[..]);
 	    }
 	}
 
@@ -171,17 +166,16 @@ impl Solver {
     /// Add [`lit`] as a watch literal to the clause
     fn add_watch(&mut self,
 		 clause_ref: ClauseRef,
-		 lit: i32) {
-	self.watches[cal_idx!(lit, self.n_vars)]
+		 lit: Lit) {
+	self.watches[lit.idx()]
 	    .add_watch(Watch::new(clause_ref));
     }
 
     /// Allocate a new clause containing literals in [`lits`], set up two watched literals scheme
     fn add_clause(&mut self,
-		  lits: &[i32]) -> ClauseRef {
+		  lits: &[Lit]) -> ClauseRef {
 	let clause_ref = self.allocator.allocate_clause(lits);
 
-	
 	debug_assert!(lits.len() >= 2);
 	// this is because, we do not add unary clauses to the database.
 	// unary clauses, be it learned or original, are encoded as
@@ -195,12 +189,11 @@ impl Solver {
 
     /// Assign [`lit`] to be [`false`], set reason clause
     /// TODO: move push logic outside of [`assign()`]
-    fn assign(&mut self, lit: i32, reason: ClauseRef) {
+    fn assign(&mut self, lit: Lit, reason: ClauseRef) {
 	self.false_stack.push(lit);
-	let lit_idx = cal_idx!(lit, self.n_vars);
 
-	self.assignment[lit_idx] = Assignment::Assigned(self.level);
-	self.reason[lit_idx] = reason;
+	self.assignment[lit.idx()] = Assignment::Assigned(self.level);
+	self.reason[lit.idx()] = reason;
 
 	#[cfg(debug_assertions)]
 	if reason.is_null() {
@@ -211,9 +204,8 @@ impl Solver {
 	
     }
 
-    fn unassign(&mut self, lit: i32) {
-	let lit_idx = cal_idx!(lit, self.n_vars);
-	self.assignment[lit_idx] = Assignment::Unassigned;
+    fn unassign(&mut self, lit: Lit) {
+	self.assignment[lit.idx()] = Assignment::Unassigned;
     }
 
     fn naive_decide(&mut self) -> bool {
@@ -221,9 +213,9 @@ impl Solver {
 	// increment decision level
 	
 	for var in 1..(self.n_vars as i32 + 1) {
-	    if self.assignment[cal_idx!(var, self.n_vars)] == Assignment::Unassigned
-		&& self.assignment[cal_idx!(-var, self.n_vars)] == Assignment::Unassigned {
-		    self.assign(var, ClauseRef::null());
+	    if self.assignment[Lit::from_dimacs(var).idx()] == Assignment::Unassigned
+		&& self.assignment[Lit::from_dimacs(-var).idx()] == Assignment::Unassigned {
+		    self.assign(Lit::from_dimacs(var), ClauseRef::null());
 		return true;
 	    }
 	}
@@ -239,12 +231,12 @@ impl Solver {
     /// that x3 should be false
     /// Note that it will never touch [`self.watches[wlit]`]
     fn force_clause_status(&mut self,
-			   wlit: i32,
+			   wlit: Lit,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
 	// FIXME: remove
 	#[cfg(debug_assertions)]
-	if self.assignment[cal_idx!(wlit, self.n_vars)] == Assignment::Unassigned {
+	if self.assignment[wlit.idx()] == Assignment::Unassigned {
 	    panic!("should not call force_clause_status with unassigned literal");
 	}
 	
@@ -264,8 +256,7 @@ impl Solver {
 	let mut unassigned_idx: Option<usize> = None;
 
 	for (i, lit) in rest.iter().enumerate() {
-	    let lit_idx = cal_idx!(*lit, self.n_vars);
-	    if let Assignment::Unassigned = self.assignment[lit_idx] {
+	    if let Assignment::Unassigned = self.assignment[lit.idx()] {
 		// [`lit`] is non-false
 		unassigned_idx = Some(i); break;
 	    }
@@ -290,11 +281,9 @@ impl Solver {
 		
 		// the clause is either unit or conflict
 		let wlit2 = first_two[0];
-		let wlit2_idx = cal_idx!(wlit2, self.n_vars);
-		let neg_wlit2_idx = cal_idx!(-wlit2, self.n_vars);
 
-		if let Assignment::Unassigned = self.assignment[neg_wlit2_idx] {
-		    if let Assignment::Unassigned = self.assignment[wlit2_idx] {
+		if let Assignment::Unassigned = self.assignment[(-wlit2).idx()] {
+		    if let Assignment::Unassigned = self.assignment[wlit2.idx()] {
 			// unit clause found, implying [`-wlit2`] to be false
 			ClauseStatus::Unit(-wlit2)
 		    } else {
@@ -321,10 +310,9 @@ impl Solver {
 	    let cur_lit = self.false_stack[self.processed]; self.processed += 1; 
 	    // get current unprocessed false_stack literal that is assigned
 	    // to be false
-	    let cur_lit_idx = cal_idx!(cur_lit, self.n_vars);
 
 	    let mut watch_list = WatchList::new();
-	    std::mem::swap(&mut self.watches[cur_lit_idx], &mut watch_list);
+	    std::mem::swap(&mut self.watches[cur_lit.idx()], &mut watch_list);
 	    // take ownership
 
 	    let mut conflict = false;
@@ -367,10 +355,10 @@ impl Solver {
 	    }
 
 	    // FIXME: remove
-	    debug_assert!(self.watches[cur_lit_idx].is_empty());
+	    debug_assert!(self.watches[cur_lit.idx()].is_empty());
 
 	    watch_list.truncate(j);
-	    std::mem::swap(&mut self.watches[cur_lit_idx], &mut watch_list);
+	    std::mem::swap(&mut self.watches[cur_lit.idx()], &mut watch_list);
 	    // write back updated watch list
 
 	    if conflict { return false; }
@@ -384,22 +372,22 @@ impl Solver {
     fn analyze_conflict(&mut self) -> bool {
 
 	#[cfg(debug_assertions)]
-	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
+	println!("conflict found: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
 
 	if self.level == Level::ground_level() { return false; } // root level conflict found, UNSAT
 
 	unsafe { // memset [`mark`] array to all false
-	    std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars + 1);
+	    std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars);
 	}
 
 	for lit in &self.buffer { // mark all literals in conflict clause
-	    self.marked[cal_idx!(*lit, self.n_vars)] = true;
+	    self.marked[(*lit).idx()] = true;
 	}
 
 	debug_assert!(self.false_stack.len() >= 1);
 
 	self.processed = self.false_stack.len()-1;
-	while !self.marked[cal_idx!(self.false_stack[self.processed], self.n_vars)] {
+	while !self.marked[self.false_stack[self.processed].idx()] {
 	    self.unassign(self.false_stack[self.processed]);
 	    self.processed -= 1;
 	}
@@ -407,7 +395,7 @@ impl Solver {
 
 	let mut snd_marked = {
 	    let mut i = self.processed-1;
-	    while !self.marked[cal_idx!(self.false_stack[i], self.n_vars)] { i -= 1; }
+	    while !self.marked[self.false_stack[i].idx()] { i -= 1; }
 	    i
 	};
 	// snd_marked is the last literal different from [`processed`] but is also marked
@@ -421,17 +409,17 @@ impl Solver {
 	// is the first UIP
 
 	loop {
-	    let lit = self.false_stack[self.processed]; let lit_idx = cal_idx!(lit, self.n_vars);
+	    let lit = self.false_stack[self.processed];
 
 	    #[cfg(debug_assertions)]
 	    println!("resolving {}", lit);
 	    #[cfg(debug_assertions)]
-	    println!("reason: {:?}", self.reason[lit_idx]);
-	    debug_assert!(self.marked[lit_idx]);
+	    println!("reason: {:?}", self.reason[lit.idx()]);
+	    debug_assert!(self.marked[lit.idx()]);
 	    
 	    
-	    let reason_cls = self.allocator.get_clause(self.reason[lit_idx]);
-	    for lit in reason_cls.lits() { self.marked[cal_idx!(lit, self.n_vars)] = true; }
+	    let reason_cls = self.allocator.get_clause(self.reason[lit.idx()]);
+	    for lit in reason_cls.lits() { self.marked[lit.idx()] = true; }
 	    // mark all literals in reason clause
 	    
 	    while self.processed > snd_marked {
@@ -442,9 +430,9 @@ impl Solver {
 
 	    {
 		let mut i = snd_marked;
-		while !self.reason[cal_idx!(self.false_stack[i], self.n_vars)].is_null() {
+		while !self.reason[self.false_stack[i].idx()].is_null() {
 		    i -= 1;
-		    if self.marked[cal_idx!(self.false_stack[i], self.n_vars)] {
+		    if self.marked[self.false_stack[i].idx()] {
 			snd_marked = i; break;
 		    }
 		}
@@ -464,9 +452,9 @@ impl Solver {
 	    self.buffer.truncate(0);
 	    self.processed += 1;
 	    while self.processed > 0 {
-		let lit = self.false_stack[self.processed-1]; let lit_idx = cal_idx!(lit, self.n_vars);
-		if self.assignment[lit_idx].level() == Level::ground_level() { break; } // ground level assertions are ruled out
-		if self.marked[lit_idx] { self.buffer.push(lit); }
+		let lit = self.false_stack[self.processed-1];
+		if self.assignment[lit.idx()].level() == Level::ground_level() { break; } // ground level assertions are ruled out
+		if self.marked[lit.idx()] { self.buffer.push(lit); }
 		self.processed -= 1;
 	    }
 	    self.processed = assign_idx;
@@ -476,7 +464,7 @@ impl Solver {
 	#[cfg(debug_assertions)]
 	println!("uip found: {}", first_uip);
 	#[cfg(debug_assertions)]
-	println!("clause learned: {}", self.buffer.iter().map(|x| format!("{:?}", *x)).collect::<Vec<String>>().join(" "));
+	println!("clause learned: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
 	debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
 	// since this solver is false-based, it contains the UIP
 
@@ -484,7 +472,7 @@ impl Solver {
 	    .iter()
 	    .fold(Level::ground_level(),
 		  |acc, lit| {
-		      let level = self.assignment[cal_idx!(*lit, self.n_vars)].level();
+		      let level = self.assignment[(*lit).idx()].level();
 		      if level < self.level { std::cmp::max(acc, level) }
 		      else                  { acc }
 		  });
@@ -493,7 +481,7 @@ impl Solver {
 	self.processed += 1;
 	while self.processed > 0 {
 	    let lit = self.false_stack[self.processed-1];
-	    let level = self.assignment[cal_idx!(lit, self.n_vars)].level();
+	    let level = self.assignment[lit.idx()].level();
 	    if level == snd_highest_level { break; }
 	    self.unassign(lit);
 	    self.processed -= 1;
@@ -551,7 +539,8 @@ mod tests {
 	    let mut occurs = std::collections::HashMap::new();
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		let lit = Lit::from_dimacs(lit);
+		for watch in &self.watches[lit.idx()] {
 		    if !occurs.contains_key(watch) {
 			let clause = self.allocator.get_clause(watch.clause_ref()).lits().to_vec();
 			occurs.insert(watch, clause);
@@ -575,8 +564,9 @@ mod tests {
 	fn print_watch(&self) {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
+		let lit = Lit::from_dimacs(lit);
 		println!("literal {} is watching:", lit);
-		println!("{}", (&self.watches[cal_idx!(lit, self.n_vars)])
+		println!("{}", (&self.watches[lit.idx()])
 			 .into_iter()
 			 .map(|x| format!("{:?}", x.clause_ref()))
 			 .collect::<Vec<String>>()
@@ -588,11 +578,12 @@ mod tests {
 	fn verify(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		let lit = Lit::from_dimacs(lit);
+		for watch in &self.watches[lit.idx()] {
 		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
 		    let mut satisfied = false;
 		    for lit2 in lits {
-			if let Assignment::Assigned(_) = self.assignment[cal_idx!(-lit2, self.n_vars)] {
+			if let Assignment::Assigned(_) = self.assignment[(-*lit2).idx()] {
 			    satisfied = true;
 			}
 		    }
@@ -606,7 +597,8 @@ mod tests {
 	fn watch_in_first_two(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
+		let lit = Lit::from_dimacs(lit);
+		for watch in &self.watches[lit.idx()] {
 		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
 		    if lit != lits[0] && lit != lits[1] {
 			return false;
@@ -620,7 +612,8 @@ mod tests {
 	    let mut res = 0;
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		res += self.watches[cal_idx!(lit, self.n_vars)].len()
+		let lit = Lit::from_dimacs(lit);
+		res += self.watches[lit.idx()].len()
 	    }
 	    res / 2 == self.n_clauses + self.n_lemmas
 	}
@@ -628,15 +621,16 @@ mod tests {
 	fn watch_scheme_invariant(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
-		for watch in &self.watches[cal_idx!(lit, self.n_vars)] {
-		    if !(self.assignment[cal_idx!(lit, self.n_vars)] == Assignment::Unassigned) {
+		let lit = Lit::from_dimacs(lit);
+		for watch in &self.watches[lit.idx()] {
+		    if !(self.assignment[lit.idx()] == Assignment::Unassigned) {
 			// if [`lit`] is falsified, then another watch must be satisfied
 			let lits = self.allocator.get_clause(watch.clause_ref()).lits();
 			let lit2 = {
 			    if lit == lits[0] { lits[1] }
 			    else              { lits[0] }
 			};
-			if let Assignment::Unassigned = self.assignment[cal_idx!(-lit2, self.n_vars)] {
+			if let Assignment::Unassigned = self.assignment[(-lit2).idx()] {
 			    return false;
 			}
 		    }
@@ -695,11 +689,11 @@ mod tests {
 	// simlute a decision
 	// println!("assign literal 1 to be false");
 	solver.level.incr();
-	solver.assign(1, ClauseRef::null());
+	solver.assign(Lit::from_dimacs(1), ClauseRef::null());
 	let propagation_result = solver.propagate();
 
 	assert!(!propagation_result); // conflict should be found
-	assert_eq!(solver.buffer, vec![3, 2]);
+	assert_eq!(solver.buffer, vec![3, 2].into_iter().map(|num| Lit::from_dimacs(num)).collect::<Vec<_>>());
 
 	// println!("propagation result: {}", propagation_result);
 
