@@ -47,6 +47,7 @@ where R : Read {
 	    );
 	    let last_num = last.parse::<i32>().expect("number");
 	    if last_num == 0 { break; }
+	    dimacs_clause.push(last_num);
 	}
 	clauses.push(dimacs_clause);
     }
@@ -101,15 +102,9 @@ mod tests {
 
 	let (n_vars, n_clauses, clauses) = dimacs_parser(BufReader::new(problem.as_bytes()))?;
 	
-	println!("n_vars: {}", n_vars);
 	assert_eq!(n_vars, 6);
-	println!("n_clauses: {}", n_clauses);
 	assert_eq!(n_clauses, 8);
-	for clause in &clauses {
-	    println!("{:?}", clause);
-	}
 	assert_eq!(clauses, clauses_ground_truth);
-
 
 	let problem_gen = dimacs_printer(6, 8, &clauses_ground_truth);
 
