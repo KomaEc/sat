@@ -385,13 +385,6 @@ impl Solver {
 	    for lit in reason_cls.lits() { self.marked[lit.idx()] = true; }
 	    // mark all literals in reason clause (resolve conflict clause with it)
 
-	    /*
-	    #[cfg(debug_assertions)] {
-		println!("false stack before undo:");
-		println!("{}", (&self.false_stack[..self.processed]).iter().map(|lit| format!("{}", *lit)).collect::<Vec<_>>().join(" "));
-	    }
-	     */
-
 	    self.unassign(self.false_stack[self.processed]); self.processed -= 1;
 	    // unassign resolution variable
 	    
@@ -436,7 +429,7 @@ impl Solver {
 	#[cfg(debug_assertions)] {
 	    println!("uip found: {}", first_uip);
 	    println!("clause learned: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
-	    debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
+	    debug_assert!(self.buffer.contains(&first_uip));
 	    // since this solver is false-based, it contains the UIP
 	    debug_assert_eq!(1, self.buffer
 			     .iter()
@@ -580,7 +573,7 @@ mod tests {
 	}
 
 
-	fn watch_in_first_two(&self) -> bool {
+	fn watch_lits_positioned_at_first_two(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
 		let lit = Lit::from_dimacs(lit);
@@ -594,7 +587,7 @@ mod tests {
 	    true
 	}
 
-	fn watched_clause_not_lost(&self) -> bool {
+	fn nwcls_eq_ncls_plus_nlemmas(&self) -> bool {
 	    let mut res = 0;
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
@@ -781,11 +774,11 @@ mod tests {
 	fn test_watch_scheme_invariant(dimacs in sat_instance()) {
 	    let mut solver = Solver::from_dimacs(dimacs);
 	    loop {
-		assert!(solver.watch_in_first_two() && solver.watched_clause_not_lost());
+		assert!(solver.watch_lits_positioned_at_first_two() && solver.nwcls_eq_ncls_plus_nlemmas());
 		if !solver.propagate() {
 		    if !solver.analyze_conflict() { break; }
 		} else {
-		    // assert!(solver.watch_in_first_two());
+		    // assert!(solver.watch_lits_positioned_at_first_two());
 		    assert!(solver.watch_scheme_invariant());
 		    if !solver.naive_decide() {
 			break;
