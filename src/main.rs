@@ -22,7 +22,10 @@ fn main() -> std::io::Result<()> {
 	return Ok(());
     }
     let file = File::open(&args[1])?;
-    let mut solver = Solver::from_dimacs(dimacs_parser::dimacs_parser(BufReader::new(file))?);
+    let sat_instance = dimacs_parser::dimacs_parser(BufReader::new(file))?;
+    println!("Solving SAT instance with {} variables and {} clauses", sat_instance.0, sat_instance.1);
+    let mut solver = Solver::from_dimacs(sat_instance);
+    // solver.print_all_clauses();
     if solver.solve() {
 	println!("SAT");
     } else {

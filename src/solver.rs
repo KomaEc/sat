@@ -21,7 +21,7 @@ impl Level {
     const ABSURD: Self = Level(u32::MAX);
 
     fn not_assigned(self) -> bool {
-	self.0 ^ u32::MAX == 0
+	self.0 == u32::MAX
     }
 }
 
@@ -357,6 +357,7 @@ impl Solver {
 	for lit in &self.buffer { // mark all literals in conflict clause
 	    self.marked[(*lit).idx()] = true;
 	}
+	self.buffer.truncate(0);
 
 	debug_assert!(self.false_stack.len() >= 1);
 
@@ -367,21 +368,8 @@ impl Solver {
 	}
 	// now [`processed`] points to the last decision literal that is marked
 
-	let mut snd_marked = {
-	    let mut i = self.processed-1;
-	    while !self.marked[self.false_stack[i].idx()] { i -= 1; }
-	    i
-	};
-	// snd_marked is the last literal different from [`processed`] but is also marked
 
-	debug_assert!(snd_marked < self.processed); // snd_marked must be properly initialized
-
-
-	// in the following, maintain this invariant:
-	// all marked literals below and include [`processed`] form a separating cut to the conflict node
-	// snd_marked <= processed and equality holds if and only if there is no further marked literal, and hence processed
-	// is the first UIP
-
+	// Pre Invariant: lit is not the uip
 	loop {
 	    let lit = self.false_stack[self.processed];
 
@@ -395,27 +383,37 @@ impl Solver {
 	    
 	    let reason_cls = self.allocator.get_clause(self.reason[lit.idx()]);
 	    for lit in reason_cls.lits() { self.marked[lit.idx()] = true; }
-	    // mark all literals in reason clause
+	    // mark all literals in reason clause (resolve conflict clause with it)
+
+	    /*
+	    #[cfg(debug_assertions)] {
+		println!("false stack before undo:");
+		println!("{}", (&self.false_stack[..self.processed]).iter().map(|lit| format!("{}", *lit)).collect::<Vec<_>>().join(" "));
+	    }
+	     */
+
+	    self.unassign(self.false_stack[self.processed]); self.processed -= 1;
+	    // unassign resolution variable
 	    
-	    while self.processed > snd_marked {
+	    while !self.marked[self.false_stack[self.processed].idx()] {
 		self.unassign(self.false_stack[self.processed]);
 		self.processed -= 1;
 	    }
-	    // set [`processed`] to be [`snd_marked`]
+	    // find next marked
 
+	    let mut is_uip = true;
 	    {
-		let mut i = snd_marked;
-		while !self.reason[self.false_stack[i].idx()].is_null() {
-		    i -= 1;
-		    if self.marked[self.false_stack[i].idx()] {
-			snd_marked = i; break;
+		let mut check = self.processed;
+		while !self.reason[self.false_stack[check].idx()].is_null() {
+		    check -= 1;
+		    if self.marked[self.false_stack[check].idx()] {
+			is_uip = false; break;
 		    }
 		}
 	    }
-	    // find snd_marked
 
-	    if snd_marked == self.processed { break; }
-	    // first UIP found
+	    if is_uip { break; }
+	    
 
 	}
 	// Post invariant: [`processed`] points to the first UIP. Literals above [`processed`] are unassigned
@@ -424,7 +422,6 @@ impl Solver {
 	let first_uip = self.false_stack[self.processed];
 	{
 	    let assign_idx = self.processed;
-	    self.buffer.truncate(0);
 	    self.processed += 1;
 	    while self.processed > 0 {
 		let lit = self.false_stack[self.processed-1];
@@ -441,6 +438,14 @@ impl Solver {
 	    println!("clause learned: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
 	    debug_assert!(self.buffer.contains(&first_uip)); // conflict clause contains the negation of the first UIP
 	    // since this solver is false-based, it contains the UIP
+	    debug_assert_eq!(1, self.buffer
+			     .iter()
+			     .fold(
+				 0, |acc, lit| {
+				     acc + if self.assignment[(*lit).idx()] < self.level { 0 } else { 1 }
+				 }
+			     ));
+	    debug_assert!(self.buffer.iter().all(|lit| !self.assignment[(*lit).idx()].not_assigned()));
 	}
 
 	let snd_highest_level = self.buffer
@@ -575,25 +580,6 @@ mod tests {
 	}
 
 
-	fn verify(&self) -> bool {
-	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
-		if lit == 0 { continue; }
-		let lit = Lit::from_dimacs(lit);
-		for watch in &self.watches[lit.idx()] {
-		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
-		    let mut satisfied = false;
-		    for lit2 in lits {
-			if !self.assignment[(-*lit2).idx()].not_assigned() {
-			    satisfied = true;
-			}
-		    }
-		    if !satisfied { return false; }
-		}
-	    }
-	    true
-	}
-
-
 	fn watch_in_first_two(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
@@ -641,7 +627,6 @@ mod tests {
     }
 
 
-
     prop_compose! {
 	fn clause(n_vars: usize)
 	    (length in 2usize..n_vars+1)
@@ -661,7 +646,7 @@ mod tests {
     /// from 3 to 7, number of clauses ranges from 5 to 20
     fn sat_instance() -> impl Strategy<Value = (usize, usize, Vec<Vec<i32>>)> {
 	(3usize..8,
-	 5usize..21)
+	 5usize..31)
 	    .prop_flat_map(|(n_vars, n_clauses)| {
 		vec(clause(n_vars), n_clauses)
 		    .prop_map(move |clauses| (n_vars, n_clauses, clauses))
@@ -775,17 +760,6 @@ mod tests {
 
     proptest! {
 	#[test]
-	fn test_solver_soundness(dimacs in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(dimacs);
-	    if solver.solve() {
-		assert!(solver.verify());
-	    }
-	    println!("");
-	}
-    }
-
-    proptest! {
-	#[test]
 	fn test_processed_invariant(dimacs in sat_instance()) {
 	    let mut solver = Solver::from_dimacs(dimacs);
 	    loop {
@@ -819,6 +793,21 @@ mod tests {
 		}
 	    }
 	}
+    }
+
+
+    #[test]
+    fn test_complete() -> std::io::Result<()> {
+	use std::fs::File;
+	use std::io::BufReader;
+	use crate::parser as dimacs_parser;
+
+	let file = File::open("data/debug.cnf")?;
+	let sat_instance = dimacs_parser::dimacs_parser(BufReader::new(file))?;
+	println!("Solving SAT instance with {} variables and {} clauses", sat_instance.0, sat_instance.1);
+	let mut solver = Solver::from_dimacs(sat_instance);
+	assert!(solver.solve());
+	Ok(())
     }
 
     
