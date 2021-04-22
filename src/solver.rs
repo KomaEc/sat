@@ -647,108 +647,17 @@ mod tests {
     }
 
     #[test]
-    fn test_propagate() {
-	let mut solver
-	    = Solver::from_dimacs(
-		(3, 9,
-		vec![vec![-3, -1, 2],
-		     vec![3, 2],
-		     vec![-1, -3],
-		     vec![-2, 1],
-		     vec![-2, -1],
-		     vec![-2, 1, 3],
-		     vec![1, -3],
-		     vec![-2, -1, -3],
-		     vec![1, 2, 3]]));
+    fn test_solver_multiple_backtrack_nontrivial_uip() -> std::io::Result<()> {
+	use std::fs::File;
+	use std::io::BufReader;
+	use crate::parser as dimacs_parser;
 
-	solver.print_all_clauses();
-	// solver.print_watch();
-
-	// simlute a decision
-	// println!("assign literal 1 to be false");
-	solver.level += 1;
-	solver.assign(Lit::from_dimacs(1), ClauseRef::null());
-	let propagation_result = solver.propagate();
-
-	assert!(!propagation_result); // conflict should be found
-	assert_eq!(solver.buffer, vec![3, 2].into_iter().map(|num| Lit::from_dimacs(num)).collect::<Vec<_>>());
-
-	// println!("propagation result: {}", propagation_result);
-
-	solver.print_watch();
-	// assert!(false);
-    }
-
-    #[test]
-    fn test_solver_multiple_backtrack_nontrivial_uip() {
-	let mut solver
-	    = Solver::from_dimacs((
-		5, 12, vec![vec![-5, 2, 1, -4, -3],
-			    vec![-1, 2],
-			    vec![4, 5, 1, 3, 2],
-			    vec![-3, -4, -1, -5],
-			    vec![-2, -5, 3],
-			    vec![3, 2, -4, -1, -5],
-			    vec![5, 4, 1],
-			    vec![-4, 5],
-			    vec![3, -5],
-			    vec![-4, -2, 1, -3],
-			    vec![-1, 5, 4],
-			    vec![-3, -5]]));
-	// solver.print_all_clauses();
-	if solver.solve() {
-	    println!("SAT");
-	} else {
-	    println!("UNSAT");
-	}
-    }
-
-    #[test]
-    fn test_unsat1() {
-	let mut solver
-	    = Solver::from_dimacs((
-		2, 3, vec![vec![1, -2],
-			   vec![-1],
-			   vec![2]]));
-
-	// solver.print_all_clauses();
-	assert!(!solver.solve());
-    }
-
-    #[test]
-    fn test_unsat2() {
-	let mut solver
-	    = Solver::from_dimacs((
-		8, 12, vec![vec![6, 2],
-			    vec![-6, 2],
-			    vec![-2, 1],
-			    vec![-1],
-			    vec![-6, 8],
-			    vec![6, -8],
-			    vec![2, 4],
-			    vec![-4, 5],
-			    vec![7, 5],
-			    vec![-7, 5],
-			    vec![-5, 3],
-			    vec![-3]]));
-
-	// solver.print_all_clauses();
-	assert!(!solver.solve());	
-    }
-
-
-    proptest! {
-	#[test]
-	fn test_solver_terminate(dimacs in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(dimacs);
-	    // solver.print_all_clauses();
-	    if solver.solve() {
-		println!("SAT");
-	    } else {
-		println!("UNSAT");
-	    }
-	    println!("");
-	}
+	let file = File::open("data/debug.cnf")?;
+	let sat_instance = dimacs_parser::dimacs_parser(BufReader::new(file))?;
+	println!("Solving SAT instance with {} variables and {} clauses", sat_instance.0, sat_instance.1);
+	let mut solver = Solver::from_dimacs(sat_instance);
+	assert!(solver.solve());
+	Ok(())
     }
 
     proptest! {
@@ -787,21 +696,5 @@ mod tests {
 	    }
 	}
     }
-
-
-    #[test]
-    fn test_complete() -> std::io::Result<()> {
-	use std::fs::File;
-	use std::io::BufReader;
-	use crate::parser as dimacs_parser;
-
-	let file = File::open("data/debug.cnf")?;
-	let sat_instance = dimacs_parser::dimacs_parser(BufReader::new(file))?;
-	println!("Solving SAT instance with {} variables and {} clauses", sat_instance.0, sat_instance.1);
-	let mut solver = Solver::from_dimacs(sat_instance);
-	assert!(solver.solve());
-	Ok(())
-    }
-
     
 }
