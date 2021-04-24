@@ -196,9 +196,7 @@ impl Solver {
 			   wlit: Lit,
 			   clause_ref: ClauseRef) -> ClauseStatus {
 
-	if cfg!(debug_assertions) && self.assignment[wlit.idx()].not_assigned() {
-	    panic!("should not call force_clause_status with unassigned literal");
-	}
+	debug_assert!(!self.assignment[wlit.idx()].not_assigned());
 	
 	let clause = self.database.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
