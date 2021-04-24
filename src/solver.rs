@@ -77,29 +77,15 @@ pub struct Solver {
 
 
 /// Data Structures
-/// 1. false_stack stack. A stack holding literals in the current assignment.
-///   1.1 two indices [`assigned`], [`processed`] of the false_stack stack.
-///   1.2 a false stack is maintained to hold status (Decided, etc.)
-/// 2. watched literals. For each literal, we store a 'linked list' of that it watches. A big array `first[lit]` is used to store
-///    the head of that list.
+/// 1. false stack. A stack holding literals in the current assignment (assigned to be false).
+/// 2. watched literals
 ///    Invariant: At any time, the two watch literals of a clause  must be non-false at levels lower than current level.
-///               After [`propagation()`], they must be non-false regardless of levels.
+///    After [`propagation()`], they must be non-false regardless of levels.
 ///    Why `two` watches not one? After all, one watch is enough for checking clause status. The answer is one watch may loss
 ///    arc consistency. Consider the following scenario: a clause is watched by a literal, which is unassigned at this point, and
 ///    after current false_stack and implications, all other literals are assigned to be false. Since the watch literal is left
 ///    untouched in this round, the solver will never check this clause. Therefore, arc consistency is lost.
-/// 3. False_Stack level. There will be no explicit false_stack levels. The assignment is organized as a stack like structure, with
-///    the following form:
-///    |     ...     |
-///    | ?   Implied |
-///    | xk  Implied | @ level (l+1)
-///    | ?   Implied |
-///    | xi  Decided | @ level (l+1)
-///    | ?   Implied |
-///    | ?   Implied |
-///    | ~xj Decided | @ level l
-///    |     ...     |
-///    Gound level assertions are represented as implied literals with reason clauses set to be [`null`]
+/// 3. Decided and Implied. The reason clause reference of a decided literal is null, while that of a implied literal is not.
 
 
 /// Learnt clauses are implied by the original set of clauses. Starting from one original clause (the conflict clause),
@@ -113,8 +99,8 @@ pub struct Solver {
 /// other literals other than the first UIP, and will only introduce other literals with possibly higher levels.
 
 
-/// It might be a bit hard to understand why CDCL can find UNSAT. Here is my thought, imagine that after a long and winding
-/// search, there are a lot of ground level implications that is produced by backtracking.
+/// It might be a bit hard to understand why CDCL can find UNSAT. Imagine that after a long and winding search, there are a lot
+/// of ground level implications that is produced by backtracking.
 
 impl Solver {
 	
@@ -161,7 +147,7 @@ impl Solver {
 	    .add_watch(Watch::new(clause_ref));
     }
 
-    /// Allocate a new clause containing literals in [`lits`], set up two watched literals scheme
+    /// Allocate a new clause containing literals in `lits`, set up two watched literals scheme
     fn add_clause(&mut self,
 		  lits: &[Lit]) -> ClauseRef {
 	let clause_ref = self.database.allocate_clause(lits);
@@ -177,8 +163,8 @@ impl Solver {
 	clause_ref
     }
 
-    /// Assign [`lit`] to be [`false`], set reason clause
-    /// TODO: move push logic outside of [`assign()`]
+    /// Assign `lit` to be `false`, set reason clause
+    /// TODO: move push logic outside of `assign()`
     fn assign(&mut self, lit: Lit, reason: ClauseRef) {
 	self.false_stack.push(lit);
 
@@ -201,11 +187,11 @@ impl Solver {
 
 
     /// Force the variant of two watch literals scheme.
-    /// Precondition: [`watch_lit`] is a watch literal of clause [`clause_ref`], and it is assigned to be false.
-    /// Return [`Unit(lit)`] if the clause is a unit clause, and [`lit`] is negation of the only unassigned literal in this clause.
+    /// Precondition: `watch_lit` is a watch literal of clause `clause_ref`, and it is assigned to be false.
+    /// Return `Unit(lit)` if the clause is a unit clause, and `lit` is negation of the only unassigned literal in this clause.
     /// For example, under partial assignment [x1 -> true, x2 -> false] the status of clause ~x1 \/ x2 \/ ~x3 is Unit(x3), it implies
     /// that x3 should be false
-    /// Note that it will never touch [`self.watches[wlit]`]
+    /// Note that it will never touch `self.watches[wlit]`
     fn force_clause_status(&mut self,
 			   wlit: Lit,
 			   clause_ref: ClauseRef) -> ClauseStatus {
@@ -217,7 +203,7 @@ impl Solver {
 	let clause = self.database.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
 
-	// ensure another watch is placed before [`wlit`]
+	// ensure another watch is placed before `wlit`
 	if wlit != first_two[1] {
 	    first_two[0] = first_two[1];
 	}
@@ -225,7 +211,7 @@ impl Solver {
 	// now, first_two[1] is meaningless
 
 	// at this point, the another watch is unassigned w.r.t.
-	// current false_stack stack up tp [`wlit`]
+	// current false_stack stack up tp `wlit`
 	
 
 	let non_false = rest.iter().position({
@@ -256,7 +242,7 @@ impl Solver {
 
 		if self.assignment[(-wlit2).idx()].not_assigned() {
 		    if self.assignment[wlit2.idx()].not_assigned() {
-			// unit clause found, implying [`-wlit2`] to be false
+			// unit clause found, implying `-wlit2` to be false
 			ClauseStatus::Unit(-wlit2)
 		    } else {
 			// conflict found
@@ -317,8 +303,8 @@ impl Solver {
 			i += 1;
 		    },
 		    ClauseStatus::Delayed => {
-			// in this case, [`cur_lit`] no longer watches [`clause_ref`], delete it replace watch positioned
-			// at [`i`] with that of [`j-1`]
+			// in this case, `cur_lit` no longer watches `clause_ref`, delete it replace watch positioned
+			// at `i` with that of `j-1`
 			watch_list.swap(i, j-1);
 			j -= 1;
 		    }
@@ -348,7 +334,7 @@ impl Solver {
 
 	if self.level == Level::GROUND { return false; } // root level conflict found, UNSAT
 
-	unsafe { // memset [`mark`] array to all false
+	unsafe { // memset `mark` array to all false
 	    std::ptr::write_bytes(self.marked.as_mut_ptr(), 0, 2 * self.n_vars);
 	}
 
@@ -364,7 +350,7 @@ impl Solver {
 	    self.unassign(self.false_stack[self.processed]);
 	    self.processed -= 1;
 	}
-	// now [`processed`] points to the last decision literal that is marked
+	// now `processed` points to the last decision literal that is marked
 
 
 	// Pre Invariant: lit is not the uip
@@ -407,7 +393,7 @@ impl Solver {
 	    
 
 	}
-	// Post invariant: [`processed`] points to the first UIP. Literals above [`processed`] are unassigned
+	// Post invariant: `processed` points to the first UIP. Literals above `processed` are unassigned
 
 
 	let first_uip = self.false_stack[self.processed];
@@ -457,7 +443,7 @@ impl Solver {
 	    self.unassign(lit);
 	    self.processed -= 1;
 	}
-	// after this loop, [`processed`] is set to be the correct decision length
+	// after this loop, `processed` is set to be the correct decision length
 	
 
 	self.false_stack.truncate(self.processed); // undo false stack
