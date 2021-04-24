@@ -1,7 +1,7 @@
 # A Simple CDCL SAT Solver
 
 ## Simplesat
-Simplesat is a __conflict driven clause learning__ SAT solver written in Rust. It features the two watched literals optimization scheme. It is documented and _property-based tested_.
+Simplesat is a __conflict driven clause learning__ SAT solver written in Rust. It features the two watched literals optimization scheme. It is documented and property-based tested.
 
 
 ## TODO
@@ -10,7 +10,7 @@ Simplesat is a __conflict driven clause learning__ SAT solver written in Rust. I
 
 
 ## Discussion
-I want to discuss several problems I met when implementing this algorithm in Rust.
+Problems I met when implementing this algorithm
 
 ### Termination Property
 The termination property of the CDCL algorithm is not that obvious (at least to me). It is hypothetical that some paths may be repeatedly reached, since the backjump mechanism does not systematically explore the search space.
@@ -23,11 +23,6 @@ At first glance, it seems that learned clauses may help. Indeed, a learned claus
 
 In fact, the solver terminates even if we do not keep learned clauses at all! The reason lies in the immediate implication of the learned asserting clause. Suppose the solver is currently at decision level `dl`, and will return back to `dl` again. Assume `dl'` is the lowest level the solver should reach in this period. Of course, `dl' <= dl`. Since `dl'` is the lowest, the solver can only backjump to this level. Each time the solver reaches `dl'`, a literal is immediately asserted by the learned clause at level `dl'`. So even if learned clauses are discarded right away, when the solver returns back to `dl`, it is with a different partial assignment.
 
-### Interprocedural Borrow Conflicts
-Please refer to this [article](http://smallcultfollowing.com/babysteps/blog/2018/11/01/after-nll-interprocedural-conflicts/) for the concept of __interprocedural borrow conflicts__ in Rust. I was not quite haunted by it, but it indeed happened.
-
-
-### Watch Clause Removal
 
 ## Reference
 I find these books, slides and codes very useful.
