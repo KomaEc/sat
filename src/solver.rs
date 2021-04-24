@@ -10,7 +10,7 @@ use std::vec::Vec;
 
 
 /// Decision level. Assignment to a literal is also represented by its level. A literal is not assigned if and if only its level
-/// is [`u32::MAX`]. This is reasonable, because we can treat implications with lower levels as more reliable. Ground level implications
+/// is `u32::MAX`. This is reasonable, because we can treat implications with lower levels as more reliable. Ground level implications
 /// are just assertions.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -31,7 +31,7 @@ impl std::ops::AddAssign<u32> for Level {
     }
 }
 
-/// [`Delayed`] clause can be either unit or unresolved or satisfed
+/// `Delayed` clause can be either unit or unresolved or satisfed
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum ClauseStatus {
     Unit(Lit),
@@ -55,21 +55,17 @@ pub struct Solver {
     /// length = n_vars
     assignment : Box<[Level]>, /// assignment info
     /// length = 2 * n_vars
-    watches : Box<[WatchList]>, /// clauses watched by a literal
+    watches : Box<[WatchList]>, /// clauses watching a literal
     /// length = 2 * n_vars
     marked : Box<[bool]>, /// we can treat is as the resolvent during the analyzing process
     /// length = 2 * n_vars
 
     processed : usize,
     /// a pointer into the false stack for processing literals
-    /// Invariant: processed = false_stack.len() after succesful propagation and false_stack.len()-1 after
-    /// analyze
+    /// Invariant: processed = false_stack.len() after succesful propagation and false_stack.len()-1 after analyze
 
-    level: Level,
-    /// decision level
+    level: Level, /// decision level
     
-
-
     buffer : Vec<Lit>, // a buffer to contain conflict clauses
     /// capacity of total buffer = n_vars
     database : Allocator,
@@ -78,8 +74,8 @@ pub struct Solver {
 
 /// Data Structures
 /// 1. false stack. A stack holding literals in the current assignment (assigned to be false).
-/// 2. watched literals
-///    Invariant: At any time, the two watch literals of a clause  must be non-false at levels lower than current level.
+/// 2. Two watched literals scheme
+///    Invariant: At any time, the two watched literals of a clause  must be non-false at levels lower than current level.
 ///    After [`propagation()`], they must be non-false regardless of levels.
 ///    Why `two` watches not one? After all, one watch is enough for checking clause status. The answer is one watch may loss
 ///    arc consistency. Consider the following scenario: a clause is watched by a literal, which is unassigned at this point, and
@@ -89,7 +85,7 @@ pub struct Solver {
 
 
 /// Learnt clauses are implied by the original set of clauses. Starting from one original clause (the conflict clause),
-/// a learnt clause is constructed by multip steps of resolusion of this clause with other clauses.
+/// a learnt clause is constructed by multiple steps of resolusion of this clause with other clauses.
 
 /// Backtrack level: the second highest level in the learnt clause.
 
@@ -98,9 +94,6 @@ pub struct Solver {
 /// is pretty simple: resolusion only eliminates literals at current assignment, so further resolusion will not affects
 /// other literals other than the first UIP, and will only introduce other literals with possibly higher levels.
 
-
-/// It might be a bit hard to understand why CDCL can find UNSAT. Imagine that after a long and winding search, there are a lot
-/// of ground level implications that is produced by backtracking.
 
 impl Solver {
 	
@@ -189,8 +182,8 @@ impl Solver {
     /// Force the variant of two watch literals scheme.
     /// Precondition: `watch_lit` is a watch literal of clause `clause_ref`, and it is assigned to be false.
     /// Return `Unit(lit)` if the clause is a unit clause, and `lit` is negation of the only unassigned literal in this clause.
-    /// For example, under partial assignment [x1 -> true, x2 -> false] the status of clause ~x1 \/ x2 \/ ~x3 is Unit(x3), it implies
-    /// that x3 should be false
+    /// For example, under partial assignment `[x1 -> true, x2 -> false]` the status of clause `~x1 \/ x2 \/ ~x3` is `Unit(x3)`,
+    /// it implies that x3 should be false.
     /// Note that it will never touch `self.watches[wlit]`
     fn force_clause_status(&mut self,
 			   wlit: Lit,
