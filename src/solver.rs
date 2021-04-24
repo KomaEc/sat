@@ -267,15 +267,11 @@ impl Solver {
 	    // get current unprocessed false_stack literal that is assigned
 	    // to be false
 
-	    let mut watch_list = WatchList::new();
-	    std::mem::swap(&mut self.watches[cur_lit.idx()], &mut watch_list);
-	    // take ownership
-
 	    let mut conflict = false;
-	    let mut j = watch_list.len(); let mut i = 0;
+	    let mut j = self.watches[cur_lit.idx()].len(); let mut i = 0;
 	    while i < j {
 
-		let clause_ref = watch_list[i].clause_ref();
+		let clause_ref = self.watches[cur_lit.idx()][i].clause_ref();
 
 		#[cfg(debug_assertions)] {
 		    println!("visiting literal {} and clause {:?}", cur_lit, clause_ref);
@@ -303,18 +299,14 @@ impl Solver {
 		    ClauseStatus::Delayed => {
 			// in this case, `cur_lit` no longer watches `clause_ref`, delete it replace watch positioned
 			// at `i` with that of `j-1`
-			watch_list.swap(i, j-1);
+			self.watches[cur_lit.idx()].swap(i, j-1);
 			j -= 1;
 		    }
 		}
 	    }
 
-	    // FIXME: remove
-	    debug_assert!(self.watches[cur_lit.idx()].is_empty());
 
-	    watch_list.truncate(j);
-	    std::mem::swap(&mut self.watches[cur_lit.idx()], &mut watch_list);
-	    // write back updated watch list
+	    self.watches[cur_lit.idx()].truncate(j);
 
 	    if conflict { return false; }
 	    
@@ -526,7 +518,9 @@ mod tests {
 		let lit = Lit::from_dimacs(lit);
 		for watch in &self.watches[lit.idx()] {
 		    if !occurs.contains_key(watch) {
-			let clause = self.database.get_clause(watch.clause_ref()).lits().iter().map(|lit| (*lit).to_dimacs()).collect::<Vec<_>>();
+			let clause = self.database
+			    .get_clause(watch.clause_ref())
+			    .lits().iter().map(|lit| (*lit).to_dimacs()).collect::<Vec<_>>();
 			occurs.insert(watch, clause);
 		    }
 		}
@@ -559,7 +553,7 @@ mod tests {
 	}
 
 
-	fn watch_lits_positioned_at_first_two(&self) -> bool {
+	fn watched_lits_positioned_at_first_two(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
 		if lit == 0 { continue; }
 		let lit = Lit::from_dimacs(lit);
@@ -573,15 +567,6 @@ mod tests {
 	    true
 	}
 
-	fn nwcls_eq_ncls_plus_nlemmas(&self) -> bool {
-	    let mut res = 0;
-	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
-		if lit == 0 { continue; }
-		let lit = Lit::from_dimacs(lit);
-		res += self.watches[lit.idx()].len()
-	    }
-	    res / 2 == self.n_clauses + self.n_lemmas
-	}
 
 	fn watch_scheme_invariant(&self) -> bool {
 	    for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
@@ -646,30 +631,13 @@ mod tests {
 	Ok(())
     }
 
-    proptest! {
-	#[test]
-	fn test_processed_invariant(dimacs in sat_instance()) {
-	    let mut solver = Solver::from_dimacs(dimacs);
-	    loop {
-		if !solver.propagate() {
-		    if !solver.analyze_conflict() { break; }
-		    assert_eq!(solver.processed, solver.false_stack.len()-1);
-		} else {
-		    assert_eq!(solver.processed, solver.false_stack.len());
-		    if !solver.naive_decide() {
-			break;
-		    }
-		}
-	    }
-	}
-    }
 
     proptest! {
 	#[test]
 	fn test_watch_scheme_invariant(dimacs in sat_instance()) {
 	    let mut solver = Solver::from_dimacs(dimacs);
 	    loop {
-		assert!(solver.watch_lits_positioned_at_first_two() && solver.nwcls_eq_ncls_plus_nlemmas());
+		assert!(solver.watched_lits_positioned_at_first_two());
 		if !solver.propagate() {
 		    if !solver.analyze_conflict() { break; }
 		} else {
