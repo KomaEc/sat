@@ -1,11 +1,9 @@
 # A Simple CDCL SAT Solver
-Simplesat is a __conflict driven clause learning__ SAT solver written in Rust. It features the two watched literals optimization scheme. It is property-based tested.
-
+Simplesat is a __conflict driven clause learning__ SAT solver. It features the two watched literals optimization scheme. It can solve some SAT problems with thousands of variables (`data/QG/qg5-13.cnf`). It is property-based tested.
 
 ## TODO
 - [ ] Smarter allocator
 - [ ] Heuristics (VSIDS, LBD)
-
 
 ## Discussion
 Problems I met when implementing this algorithm
