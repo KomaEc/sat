@@ -72,7 +72,7 @@ pub struct Solver {
 
     buffer : Vec<Lit>, // a buffer to contain conflict clauses
     /// capacity of total buffer = n_vars
-    allocator : Allocator,
+    database : Allocator,
 }
 
 
@@ -134,7 +134,7 @@ impl Solver {
 		processed : 0,
 		level : Level::GROUND,
 		buffer : vec![Lit::from(0); n_vars],
-		allocator : if cfg!(debug_assertions) {
+		database : if cfg!(debug_assertions) {
 		    Allocator::small()
 		} else {
 		    Allocator::new()
@@ -164,7 +164,7 @@ impl Solver {
     /// Allocate a new clause containing literals in [`lits`], set up two watched literals scheme
     fn add_clause(&mut self,
 		  lits: &[Lit]) -> ClauseRef {
-	let clause_ref = self.allocator.allocate_clause(lits);
+	let clause_ref = self.database.allocate_clause(lits);
 
 	debug_assert!(lits.len() >= 2);
 	// this is because, we do not add unary clauses to the database.
@@ -214,7 +214,7 @@ impl Solver {
 	    panic!("should not call force_clause_status with unassigned literal");
 	}
 	
-	let clause = self.allocator.get_clause_mut(clause_ref);
+	let clause = self.database.get_clause_mut(clause_ref);
 	let (first_two, rest) = clause.lits_mut().split_at_mut(2);
 
 	// ensure another watch is placed before [`wlit`]
@@ -226,15 +226,13 @@ impl Solver {
 
 	// at this point, the another watch is unassigned w.r.t.
 	// current false_stack stack up tp [`wlit`]
+	
 
-	let mut non_false: Option<usize> = None;
-
-	for (i, lit) in rest.iter().enumerate() {
-	    if self.assignment[lit.idx()].not_assigned() {
-		// [`lit`] is non-false
-		non_false = Some(i); break;
-	    }
-	}
+	let non_false = rest.iter().position({
+	    let assignment = &self.assignment;
+	    move |lit| assignment[lit.idx()].not_assigned()
+	});
+	// use move keyword to capture assignment by move
 
 	match non_false {
 	    Some(i) => {
@@ -305,7 +303,7 @@ impl Solver {
 			i += 1;
 		    },
 		    ClauseStatus::Conflict => {
-			let lits = self.allocator
+			let lits = self.database
 			    .get_clause(clause_ref)
 			    .lits();
 			self.buffer.truncate(0);
@@ -381,7 +379,7 @@ impl Solver {
 	    }
 	    
 	    
-	    let reason_cls = self.allocator.get_clause(self.reason[lit.idx()]);
+	    let reason_cls = self.database.get_clause(self.reason[lit.idx()]);
 	    for lit in reason_cls.lits() { self.marked[lit.idx()] = true; }
 	    // mark all literals in reason clause (resolve conflict clause with it)
 
@@ -499,12 +497,16 @@ impl Solver {
 	return false;
     }
 
+    fn decide(&mut self) -> bool {
+	self.naive_decide()
+    }
+
     pub fn solve(&mut self) -> bool {
 
 	loop {
 	    if !self.propagate() {
 		if !self.analyze_conflict() { return false; }
-	    } else if !self.naive_decide() {
+	    } else if !self.decide() {
 		return true;
 	    }
 	}
@@ -540,7 +542,7 @@ mod tests {
 		let lit = Lit::from_dimacs(lit);
 		for watch in &self.watches[lit.idx()] {
 		    if !occurs.contains_key(watch) {
-			let clause = self.allocator.get_clause(watch.clause_ref()).lits().iter().map(|lit| (*lit).to_dimacs()).collect::<Vec<_>>();
+			let clause = self.database.get_clause(watch.clause_ref()).lits().iter().map(|lit| (*lit).to_dimacs()).collect::<Vec<_>>();
 			occurs.insert(watch, clause);
 		    }
 		}
@@ -578,7 +580,7 @@ mod tests {
 		if lit == 0 { continue; }
 		let lit = Lit::from_dimacs(lit);
 		for watch in &self.watches[lit.idx()] {
-		    let lits = self.allocator.get_clause(watch.clause_ref()).lits();
+		    let lits = self.database.get_clause(watch.clause_ref()).lits();
 		    if lit != lits[0] && lit != lits[1] {
 			return false;
 		    }
@@ -604,7 +606,7 @@ mod tests {
 		for watch in &self.watches[lit.idx()] {
 		    if !(self.assignment[lit.idx()].not_assigned()) {
 			// if [`lit`] is falsified, then another watch must be satisfied
-			let lits = self.allocator.get_clause(watch.clause_ref()).lits();
+			let lits = self.database.get_clause(watch.clause_ref()).lits();
 			let lit2 = {
 			    if lit == lits[0] { lits[1] }
 			    else              { lits[0] }
