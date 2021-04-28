@@ -3,7 +3,8 @@
 use crate::{
     clause::alloc::{Allocator, ClauseRef},
     watch::{Watch, WatchList},
-    lit::Lit,
+    lit::{Var, Lit},
+    evsids::EVSIDS,
 };
 use std::vec::Vec;
 
@@ -69,6 +70,8 @@ pub struct Solver {
     buffer : Vec<Lit>, // a buffer to contain conflict clauses
     /// capacity of total buffer = n_vars
     database : Allocator,
+
+    decision_heuristic: EVSIDS,
 }
 
 
@@ -118,6 +121,7 @@ impl Solver {
 		} else {
 		    Allocator::new()
 		},
+		decision_heuristic : EVSIDS::new(n_vars),
 	    };
 
 	for lits in clauses {
@@ -311,6 +315,8 @@ impl Solver {
 
     fn analyze_conflict(&mut self) -> bool {
 
+	self.decision_heuristic.decay(); // new conflict, decay
+
 	#[cfg(debug_assertions)] {
 	    println!("conflict found: {}", self.buffer.iter().map(|x| format!("{}", *x)).collect::<Vec<String>>().join(" "));
 	}
@@ -386,7 +392,11 @@ impl Solver {
 	    while self.processed > 0 {
 		let lit = self.false_stack[self.processed-1];
 		if self.assignment[lit.idx()] == Level::GROUND { break; } // ground level assertions are ruled out
-		if self.marked[lit.idx()] { self.buffer.push(lit); }
+		if self.marked[lit.idx()] {
+		    self.decision_heuristic.update_score(Var::from(lit));
+		    // update score
+		    self.buffer.push(lit);
+		}
 		self.processed -= 1;
 	    }
 	    self.processed = assign_idx;
@@ -467,7 +477,34 @@ impl Solver {
     }
 
     fn decide(&mut self) -> bool {
-	self.naive_decide()
+	self.level += 1;
+
+	let start_idx = 
+	    match self.decision_heuristic.last_chosen {
+		None => {
+		    self.decision_heuristic.rank(); 0
+		},
+		Some(idx) => {
+		    idx+1
+		},
+	    };
+	let decision_list = self.decision_heuristic.decision_list();
+	let mut decision_var = None; let mut new_start_idx = start_idx;
+	for (i, var) in (&decision_list[start_idx..]).iter().enumerate() {
+	    if self.assignment[var.to_lit().idx()].not_assigned() && self.assignment[var.to_neg_lit().idx()].not_assigned() {
+		decision_var = Some(*var);
+		new_start_idx += i;
+		break;		
+	    }
+	}
+	match decision_var {
+	    Some(var) => {
+		self.assign(var.to_lit(), ClauseRef::null());
+		self.decision_heuristic.last_chosen = Some(new_start_idx);
+		true
+	    },
+	    None => { false }
+	}
     }
 
     pub fn solve(&mut self) -> bool {

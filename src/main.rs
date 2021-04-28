@@ -5,6 +5,7 @@ mod solver;
 mod parser;
 mod watch;
 mod lit;
+mod evsids;
 
 use crate::{
     solver::Solver,
@@ -13,6 +14,7 @@ use crate::{
 use std::fs::File;
 use std::io::BufReader;
 use std::env;
+use std::time::{Duration, Instant};
 
 fn main() -> std::io::Result<()> {
     
@@ -26,10 +28,17 @@ fn main() -> std::io::Result<()> {
     println!("Solving SAT instance with {} variables and {} clauses", sat_instance.0, sat_instance.1);
     let mut solver = Solver::from_dimacs(sat_instance);
     // solver.print_all_clauses();
+
+    let start = Instant::now();
+    
     if solver.solve() {
 	println!("SAT");
     } else {
 	println!("UNSAT");
     }
+
+    let duration = start.elapsed();
+    println!("finished in time {:?}", duration);
+    
     Ok(())
 }
