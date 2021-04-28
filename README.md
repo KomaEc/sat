@@ -16,7 +16,7 @@ Simplesat is a __conflict driven clause learning__ SAT solver. It features the t
     > cargo run --release data/QG/qg5-13.cnf
     > Solving SAT instance with 2197 variables and 125464 clauses
     > UNSAT
-    > finished in time 14.25306736s
+    > finished in time 2.553388132s
     ```
     
 - [ ] Database Reduction Strategy (LBD)

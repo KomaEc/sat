@@ -56,6 +56,7 @@ where R : Read {
 
 }
 
+#[allow(dead_code)]
 pub fn dimacs_printer(n_vars: usize, n_clauses: usize, clauses: &Vec<Vec<i32>>)
 		  -> String {
     let mut res = String::new();

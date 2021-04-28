@@ -329,6 +329,7 @@ impl Solver {
 
 	for lit in &self.buffer { // mark all literals in conflict clause
 	    self.marked[(*lit).idx()] = true;
+	    self.decision_heuristic.update_score(Var::from(*lit));
 	}
 	self.buffer.truncate(0);
 
@@ -355,7 +356,10 @@ impl Solver {
 	    
 	    
 	    let reason_cls = self.database.get_clause(self.reason[lit.idx()]);
-	    for lit in reason_cls.lits() { self.marked[lit.idx()] = true; }
+	    for lit in reason_cls.lits() {
+		self.marked[lit.idx()] = true;
+		self.decision_heuristic.update_score(Var::from(*lit));
+	    }
 	    // mark all literals in reason clause (resolve conflict clause with it)
 
 	    self.unassign(self.false_stack[self.processed]); self.processed -= 1;
@@ -393,7 +397,7 @@ impl Solver {
 		let lit = self.false_stack[self.processed-1];
 		if self.assignment[lit.idx()] == Level::GROUND { break; } // ground level assertions are ruled out
 		if self.marked[lit.idx()] {
-		    self.decision_heuristic.update_score(Var::from(lit));
+		    // self.decision_heuristic.update_score(Var::from(lit));
 		    // update score
 		    self.buffer.push(lit);
 		}
