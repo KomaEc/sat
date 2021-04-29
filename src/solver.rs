@@ -330,6 +330,7 @@ impl Solver {
 	for lit in &self.buffer { // mark all literals in conflict clause
 	    self.marked[(*lit).idx()] = true;
 	    self.decision_heuristic.update_score(Var::from(*lit));
+	    // update score
 	}
 	self.buffer.truncate(0);
 
@@ -359,6 +360,7 @@ impl Solver {
 	    for lit in reason_cls.lits() {
 		self.marked[lit.idx()] = true;
 		self.decision_heuristic.update_score(Var::from(*lit));
+		// update score
 	    }
 	    // mark all literals in reason clause (resolve conflict clause with it)
 
@@ -465,6 +467,7 @@ impl Solver {
 	true
     }
 
+    #[allow(dead_code)]
     fn naive_decide(&mut self) -> bool {
 	self.level += 1;
 	// increment decision level

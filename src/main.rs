@@ -14,7 +14,7 @@ use crate::{
 use std::fs::File;
 use std::io::BufReader;
 use std::env;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn main() -> std::io::Result<()> {
     

@@ -2,7 +2,7 @@
 Simplesat is a __conflict driven clause learning__ SAT solver. It features the two watched literals optimization scheme. It can solve some SAT problems with tens of thousands of variables (`data/QG/qg5-13.cnf`, `data/Beijing/ewddr2-10-by-5-8.cnf`). It is property-based tested.
 
 ## TODO
-- [x] Decision Heuristic (EVSIDS)
+- [x] Decision Heuristic (EVSIDS). A variable is bumped when it appears in the antecedant clauses of the learned clause.
 
     Using naive decision:
     ```shell
@@ -19,7 +19,7 @@ Simplesat is a __conflict driven clause learning__ SAT solver. It features the t
     > finished in time 2.553388132s
     ```
     
-- [ ] Database Reduction Strategy (LBD)
+- [ ] Database Reduction Strategy (LBD).
 
 ## Discussion
 Problems I met when implementing this algorithm
