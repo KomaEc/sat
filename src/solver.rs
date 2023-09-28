@@ -39,39 +39,39 @@ enum ClauseStatus {
 }
 
 /// The main solver data structure
+#[allow(unused)]
 pub struct Solver {
-    n_vars: usize,
     /// number of variables of a SAT instance
-    n_clauses: usize,
+    n_vars: usize,
     /// number of clauses
-    n_lemmas: usize,
+    n_clauses: usize,
     /// number of learned clauses
-    max_lemmas: usize,
+    n_lemmas: usize,
     /// maximum number of learned clauses
-    reason: Box<[ClauseRef]>,
+    max_lemmas: usize,
     /// the reason clause for an implication
     /// length = 2 * n_vars
-    false_stack: Vec<Lit>,
+    reason: Box<[ClauseRef]>,
     /// false_stack stack, holds literals that is assigned to be false
     /// length = n_vars
-    assignment: Box<[Level]>,
+    false_stack: Vec<Lit>,
     /// assignment info
     /// length = 2 * n_vars
-    watches: Box<[WatchList]>,
+    assignment: Box<[Level]>,
     /// clauses watching a literal
     /// length = 2 * n_vars
-    marked: Box<[bool]>,
+    watches: Box<[WatchList]>,
     /// we can treat is as the resolvent during the analyzing process
     /// length = 2 * n_vars
-    processed: usize,
+    marked: Box<[bool]>,
     /// a pointer into the false stack for processing literals
     /// Invariant: processed = false_stack.len() after succesful propagation and false_stack.len()-1 after analyze
-    level: Level,
+    processed: usize,
     /// decision level
-    buffer: Vec<Lit>, // a buffer to contain conflict clauses
-    /// capacity of total buffer = n_vars
+    level: Level,
+    /// A buffer to contain conflict clauses, capacity of buffer = n_vars
+    buffer: Vec<Lit>,
     database: Allocator,
-
     decision_heuristic: EVSIDS,
 }
 
@@ -563,6 +563,7 @@ mod tests {
 
     /// utility functions and properties to be tested
     impl Solver {
+        #[allow(unused)]
         fn print_all_clauses(&self) {
             let mut occurs = std::collections::HashMap::new();
             for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
@@ -592,6 +593,7 @@ mod tests {
             }
         }
 
+        #[allow(unused)]
         fn print_watch(&self) {
             for lit in -(self.n_vars as i32)..(self.n_vars as i32 + 1) {
                 if lit == 0 {
